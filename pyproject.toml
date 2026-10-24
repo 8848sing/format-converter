@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "format-converter"
+dynamic = ["version"]
+description = "Windows 便携式批量格式转换工具：图片、PDF、Office、音视频、结构化数据"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "8848sing" }]
+keywords = ["windows", "converter", "pdf", "image", "ffmpeg", "libreoffice", "tkinter"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Graphics :: Graphics Conversion",
+    "Topic :: Utilities",
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "version.__version__" }
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = ["build", "dist", "tools"]
+
+[tool.ruff.lint]
+select = ["E9", "F"]

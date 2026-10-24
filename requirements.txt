@@ -1,0 +1,21 @@
+# 运行依赖（Windows 10/11，Python 3.11 - 3.12）
+
+# 图片
+Pillow>=10.2.0
+pillow-heif>=0.21.0
+
+# PDF
+pypdf>=5.1.0
+pypdfium2>=4.30.0
+pdf2docx>=0.5.8
+pdfplumber>=0.11.0
+pymupdf>=1.24.0          # pdf2docx 依赖；self_test.py 直接使用
+
+# Office / 数据
+python-pptx>=1.0.2
+openpyxl>=3.1.2
+PyYAML>=6.0
+
+# 界面
+ttkbootstrap>=1.10.1
+tkinterdnd2>=0.4.2

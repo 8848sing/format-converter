@@ -1,0 +1,36 @@
+# 可执行文件与便携包二进制（发布请走 GitHub Releases）
+*.exe
+*.msi
+*.dll
+tools/*
+!tools/README.md
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# 构建产物
+build/
+dist/
+*.manifest
+
+# 本机配置与运行产物
+settings.json
+self-test-result.json
+*.log
+output/
+.cowork-temp/
+
+# 编辑器与系统文件
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
