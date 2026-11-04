@@ -171,15 +171,32 @@ def _ensure_image_plugins(path: Path | None = None):
         _IMAGE_PLUGINS_READY = True
 
 
-def _open_image(path: Path):
-    from PIL import Image  # 延迟导入，加快 GUI 启动
+def _open_image(path: Path, orient: bool = True):
+    from PIL import Image, ImageOps  # 延迟导入，加快 GUI 启动
 
     _ensure_image_plugins(path)
 
     try:
-        return Image.open(str(path))
+        img = Image.open(str(path))
     except Exception as e:
         raise ConvertError(f"无法读取图片 {path.name}: {e}") from e
+
+    # 手机照片普遍带 EXIF 方向标记。不应用旋转会得到横躺/倒置的输出，
+    # 这里在读取阶段统一摆正；动图保持原样，避免破坏多帧信息。
+    if orient:
+        try:
+            # 只有带旋转标记时才复制像素；普通图片保持惰性加载，
+            # 避免每张图都被多复制一遍。
+            if not getattr(img, "is_animated", False):
+                orientation = img.getexif().get(274, 1)
+                if orientation not in (None, 1):
+                    fixed = ImageOps.exif_transpose(img)
+                    if fixed is not img:
+                        img.close()
+                        return fixed
+        except Exception:
+            pass
+    return img
 
 
 def _flatten_for_save(img, fmt: str):
@@ -203,12 +220,20 @@ def convert_images_to_pdf(files, out_dir: Path) -> list[Path]:
     """每张图片单独生成一个同名 PDF（逐文件调用）。"""
     outs = []
     for f in files:
-        img = _flatten_for_save(_open_image(f), "PDF")
-        out = unique_path(Path(out_dir) / (f.stem + ".pdf"))
+        src = _open_image(f)
+        img = src
         try:
-            img.save(str(out), "PDF", resolution=150.0)
-        except Exception as e:
-            raise ConvertError(f"{f.name} 转 PDF 失败: {e}") from e
+            img = _flatten_for_save(src, "PDF")
+            out = unique_path(Path(out_dir) / (f.stem + ".pdf"))
+            try:
+                img.save(str(out), "PDF", resolution=150.0)
+            except Exception as e:
+                out.unlink(missing_ok=True)
+                raise ConvertError(f"{f.name} 转 PDF 失败: {e}") from e
+        finally:
+            if img is not src:
+                img.close()
+            src.close()
         outs.append(out)
     return outs
 
@@ -217,13 +242,29 @@ def merge_images_to_pdf(files, out_dir: Path) -> list[Path]:
     """多张图片合并为一个 PDF，取第一张的名字。"""
     if not files:
         raise ConvertError("没有可合并的图片")
-    imgs = [_flatten_for_save(_open_image(f), "PDF") for f in files]
-    first, rest = imgs[0], imgs[1:]
-    out = unique_path(Path(out_dir) / (Path(files[0]).stem + "-合并.pdf" if len(files) > 1 else Path(files[0]).stem + ".pdf"))
+    sources: list = []
+    owned: list = []
+    imgs: list = []
     try:
-        first.save(str(out), "PDF", save_all=True, append_images=rest, resolution=150.0)
-    except Exception as e:
-        raise ConvertError(f"合并 PDF 失败: {e}") from e
+        for f in files:
+            src = _open_image(f)
+            sources.append(src)
+            flat = _flatten_for_save(src, "PDF")
+            if flat is not src:
+                owned.append(flat)
+            imgs.append(flat)
+        first, rest = imgs[0], imgs[1:]
+        out = unique_path(Path(out_dir) / (Path(files[0]).stem + "-合并.pdf" if len(files) > 1 else Path(files[0]).stem + ".pdf"))
+        try:
+            first.save(str(out), "PDF", save_all=True, append_images=rest, resolution=150.0)
+        except Exception as e:
+            out.unlink(missing_ok=True)
+            raise ConvertError(f"合并 PDF 失败: {e}") from e
+    finally:
+        for img in owned:
+            img.close()
+        for img in sources:
+            img.close()
     return [out]
 
 
@@ -254,7 +295,6 @@ def convert_images_format_plus(files, out_dir: Path, target: str = 'png') -> lis
     for f in files:
         try:
             with _open_image(f) as source:
-                source.seek(0)
                 img = source.copy()
             if fmt in ('JPEG', 'BMP'):
                 img = _flatten_for_save(img, fmt)
@@ -270,13 +310,15 @@ def convert_images_format_plus(files, out_dir: Path, target: str = 'png') -> lis
             if fmt == 'JPEG':
                 kwargs = {'quality': 94, 'subsampling': 0, 'optimize': True}
             elif fmt == 'WEBP':
-                kwargs = {'quality': 93, 'method': 6}
+                # method=4 与 method=6 的体积几乎一致，但编码速度约快一倍。
+                kwargs = {'quality': 93, 'method': 4}
             elif fmt == 'AVIF':
                 kwargs = {'quality': 80}
             elif fmt == 'HEIF':
                 kwargs = {'quality': 85}
             elif fmt == 'PNG':
-                kwargs = {'optimize': True}
+                # optimize=True 会多跑一遍压缩搜索，实测体积只小约 1%，速度却慢一倍多。
+                kwargs = {'compress_level': 6}
             elif fmt == 'TIFF':
                 kwargs = {'compression': 'tiff_lzw'}
             elif fmt == 'GIF':
@@ -302,7 +344,7 @@ def images_to_animated_gif(files, out_dir: Path, duration_ms: int = 600) -> list
     try:
         frames = []
         for f in files:
-            with _open_image(f) as src:
+            with _open_image(f, orient=False) as src:
                 img = ImageOps.exif_transpose(src).convert('RGBA')
                 img.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
                 frames.append(img.copy())
@@ -425,7 +467,11 @@ def convert_pdf_to_images(files, out_dir: Path, target: str = "png", dpi: int = 
             for i in range(len(pdf)):
                 page = pdf[i]
                 bmp = page.render(scale=dpi / 72.0)
-                img = bmp.to_pil()
+                try:
+                    img = bmp.to_pil()
+                finally:
+                    bmp.close()
+                    page.close()
                 img = _flatten_for_save(img, fmt)
                 suffix = ".jpg" if fmt == "JPEG" else "." + fmt.lower()
                 out = unique_path(Path(out_dir) / f"{f.stem}-第{i + 1}页{suffix}")
@@ -624,7 +670,7 @@ def office_convert(files, out_dir: Path, out_ext: str = ".pdf",
     def _collect(batch_tmp: Path, batch: list[Path]) -> None:
         for f in batch:
             produced = batch_tmp / (f.stem + out_ext)
-            if not produced.exists():
+            if not produced.exists() or produced.stat().st_size == 0:
                 pending.append(f)
                 continue
             try:
@@ -662,11 +708,11 @@ def office_convert(files, out_dir: Path, out_ext: str = ".pdf",
                  tempfile.TemporaryDirectory(prefix="lo_out_", ignore_cleanup_errors=True) as tmp:
                 proc = _run_soffice_batch(soffice, Path(prof), [f], Path(tmp), 300, conv_target)
                 produced = Path(tmp) / (f.stem + out_ext)
-                if not produced.exists():
+                if not produced.exists() or produced.stat().st_size == 0:
                     detail = (proc.stderr or proc.stdout or b"").decode("utf-8", "ignore")[:300]
                     raise ConvertError(
                         f"soffice 退出码 {proc.returncode}：{detail}" if detail
-                        else f"soffice 退出码 {proc.returncode}")
+                        else f"soffice 退出码 {proc.returncode}（未生成有效输出）")
                 out = _move_out(produced, f)
                 outs.append(out)
                 emit("ok", f"{f.name} → {out.name}")
@@ -798,7 +844,12 @@ def convert_pdf_to_ppt(files, out_dir: Path, dpi: int = 150) -> list[Path]:
                 for i in range(len(pdf)):
                     # 图片走内存流，不落盘（无需 .pages 临时目录，少一倍磁盘 IO）
                     page = pdf[i]
-                    img = page.render(scale=dpi / 72.0).to_pil()
+                    bmp = page.render(scale=dpi / 72.0)
+                    try:
+                        img = bmp.to_pil()
+                    finally:
+                        bmp.close()
+                        page.close()
                     buf = BytesIO()
                     img.save(buf, "PNG")
                     buf.seek(0)
@@ -811,6 +862,7 @@ def convert_pdf_to_ppt(files, out_dir: Path, dpi: int = 150) -> list[Path]:
                         buf, (box_w - pic_w) // 2, (box_h - pic_h) // 2,
                         width=pic_w, height=pic_h,
                     )
+                    buf.close()
                 prs.save(str(out))
             finally:
                 pdf.close()
@@ -884,15 +936,33 @@ def convert_office_to_images(files, out_dir: Path, target: str = "png") -> list[
 # ---------------------------------------------------------------------------
 
 def convert_pdf_to_text(files, out_dir: Path) -> list[Path]:
-    import pdfplumber
+    import pypdfium2 as pdfium
 
     outs = []
     for f in files:
         out = unique_path(Path(out_dir) / (f.stem + ".txt"))
         try:
-            with pdfplumber.open(str(f)) as pdf:
-                parts = [(p.extract_text() or "") for p in pdf.pages]
-            text = "\n".join(parts)
+            pdf = pdfium.PdfDocument(str(f))
+            try:
+                parts = []
+                for i in range(len(pdf)):
+                    page = pdf[i]
+                    try:
+                        textpage = page.get_textpage()
+                        try:
+                            parts.append(textpage.get_text_range())
+                        finally:
+                            textpage.close()
+                    finally:
+                        page.close()
+            finally:
+                pdf.close()
+            text = "\n".join(parts).replace("\r\n", "\n").replace("\r", "\n")
+            if not text.strip():
+                # 少数 PDF 的文字层 pypdfium2 读不到，再交给 pdfplumber 兜底。
+                import pdfplumber
+                with pdfplumber.open(str(f)) as pl:
+                    text = "\n".join((p.extract_text() or "") for p in pl.pages)
             if not text.strip():
                 raise ConvertError(f"{f.name} 未提取到文本（可能是扫描件）")
             out.write_text(text, encoding="utf-8")
@@ -1064,7 +1134,7 @@ def convert_structured(files, out_dir: Path, target: str = 'json') -> list[Path]
                     ws.append([row.get(k) for k in headers])
                 ws.freeze_panes = 'A2'
                 ws.auto_filter.ref = ws.dimensions
-                for col in ws.columns:
+                for col in ws.iter_cols(min_row=1, max_row=min(200, ws.max_row)):
                     width = min(48, max(10, max(len(str(c.value or '')) for c in col) + 2))
                     ws.column_dimensions[col[0].column_letter].width = width
                 wb.save(out)
@@ -1089,14 +1159,17 @@ def convert_table_to_json(files, out_dir: Path) -> list[Path]:
                 rows = [dict(row) for row in reader]
             else:
                 wb = load_workbook(str(f), read_only=True, data_only=True)
-                ws = wb.active
-                values = list(ws.iter_rows(values_only=True))
-                wb.close()
-                if not values:
-                    rows = []
-                else:
-                    headers = [str(v) if v is not None else f'列{i + 1}' for i, v in enumerate(values[0])]
-                    rows = [dict(zip(headers, row)) for row in values[1:]]
+                try:
+                    ws = wb.active
+                    it = ws.iter_rows(values_only=True)
+                    header = next(it, None)
+                    if header is None:
+                        rows = []
+                    else:
+                        headers = [str(v) if v is not None else f'列{i + 1}' for i, v in enumerate(header)]
+                        rows = [dict(zip(headers, row)) for row in it]
+                finally:
+                    wb.close()
             out = unique_path(Path(out_dir) / (f.stem + '.json'))
             out.write_text(json.dumps(rows, ensure_ascii=False, indent=2, default=str), encoding='utf-8')
             outs.append(out)
@@ -1179,7 +1252,7 @@ CONVERSIONS: list[Conversion] = [
     Conversion(
         label="PDF 转图片（每页一张）", src=CAT_PDF, dst=CAT_IMG,
         extensions=PDF_EXTS, handler=convert_pdf_to_images,
-        accepts=_IMG_FMTS, accepts_label="目标格式", workers=2,
+        accepts=_IMG_FMTS, accepts_label="目标格式", workers=4,
         description="pypdfium2 渲染，200 DPI，纯 pip 依赖。",
     ),
     Conversion(

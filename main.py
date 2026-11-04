@@ -17,7 +17,26 @@ def enable_high_dpi():
 
 enable_high_dpi()
 
+import os
 import sys
+
+
+def _make_streams_safe():
+    """??? exe ??????sys.stdout/stderr ?????????
+    --version / --self-test ?????????????????????"""
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name, None)
+        try:
+            if stream is None:
+                raise OSError("no console stream")
+            stream.write("")
+            stream.flush()
+        except Exception:
+            setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
+
+
+if getattr(sys, "frozen", False):
+    _make_streams_safe()
 
 if '--version' in sys.argv:
     from version import version_text

@@ -6,6 +6,7 @@ ui.py — 现代化深色工作台式图形界面。
 """
 from __future__ import annotations
 
+import os
 import queue
 import threading
 import time
@@ -19,6 +20,7 @@ from tkinterdnd2 import DND_FILES, TkinterDnD
 
 from converters import (
     CATEGORY_EXTS,
+    CAT_IMG,
     ConvertError,
     categories_src,
     convs_for,
@@ -895,16 +897,6 @@ class App(TkinterDnD.Tk):
         self.cmb_dst.bind("<<ComboboxSelected>>", self._on_dst_change)
         self.cmb_mode.bind("<<ComboboxSelected>>", self._on_mode_change)
 
-        tk.Label(
-            box,
-            text="小提示：中间 ⇄ 可以互换两个格式；反方向没有实现时会提示。",
-            font=FONT_TINY,
-            bg=SURFACE,
-            fg=MUTED,
-            anchor="w",
-            justify="left",
-        ).pack(side="bottom", anchor="w", pady=(8, 0))
-
         self.direction_hint = tk.Label(
             box,
             text="请先在上方选择源格式和目标格式；选好后这里才会出现可用的转换方式。",
@@ -962,6 +954,20 @@ class App(TkinterDnD.Tk):
         )
         self.out_btn.pack(side="right")
         Tooltip(self.out_btn, "选择一个文件夹作为输出目录；修改后本批次将改用新目录")
+        self.open_out_btn = PillButton(
+            row,
+            text="打开目录",
+            command=self.open_out_dir,
+            width=84,
+            height=36,
+            fill=SURFACE_ALT,
+            hover=SURFACE_HOVER,
+            fg=TEXT_SOFT,
+            outer_bg=SURFACE,
+            font=(UI_FONT, 9, "bold"),
+        )
+        self.open_out_btn.pack(side="right", padx=(0, 7))
+        Tooltip(self.open_out_btn, "在资源管理器中打开当前输出文件夹；不存在时会自动创建")
 
     def _build_queue(self, parent):
         card = RoundedCard(
@@ -1084,6 +1090,7 @@ class App(TkinterDnD.Tk):
         self.tree.column("size", width=px(78), minwidth=px(62), stretch=False)
         self.tree.column("folder", width=px(260), minwidth=px(130), stretch=True)
         self.tree.grid(row=0, column=0, sticky="nsew")
+        self.tree.bind("<Double-1>", self._open_selected_location)
         sb = ttk.Scrollbar(tree_wrap, orient="vertical", command=self.tree.yview)
         sb.grid(row=0, column=1, sticky="ns")
         self.tree.configure(yscrollcommand=sb.set)
@@ -1602,7 +1609,7 @@ class App(TkinterDnD.Tk):
         if done is not None:
             self.btn_scan_stop.pack_forget()
             self._update_file_count()
-            self._log(f"文件夹扫描完成：加入 {done} 个文件", "info")
+            self._log(f"文件夹扫描完成：当前队列共 {len(self.files)} 个文件", "info")
         busy = bool(self._scan_thread and self._scan_thread.is_alive())
         self.after(120 if busy else 400, self._poll_scan)
 
@@ -1669,6 +1676,32 @@ class App(TkinterDnD.Tk):
 
     def _mark_output_manual(self, _event=None):
         self._auto_out = False
+
+    def open_out_dir(self):
+        text = self.ent_out.get().strip()
+        if not text:
+            messagebox.showinfo("提示", "请先选择输出文件夹")
+            return
+        folder = Path(text)
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            os.startfile(str(folder))
+        except OSError as e:
+            messagebox.showerror("无法打开输出目录", str(e))
+
+    def _open_selected_location(self, _event=None):
+        selected = self.tree.selection()
+        if not selected:
+            return
+        try:
+            index = int(selected[0])
+        except ValueError:
+            return
+        if 0 <= index < len(self.files):
+            try:
+                os.startfile(str(self.files[index].parent))
+            except OSError:
+                pass
 
     def pick_out_dir(self):
         d = filedialog.askdirectory(title="选择输出文件夹")
@@ -1766,30 +1799,39 @@ class App(TkinterDnD.Tk):
             if conv.batch_report:
                 self.msg_q.put(("total", len(files)))
 
+                reported = 0
+
                 def report(kind, text):
-                    nonlocal ok, fail
+                    nonlocal ok, fail, reported
                     if kind == "ok":
                         ok += 1
                     elif kind == "err":
                         fail += 1
                     else:
                         return
+                    reported += 1
                     self.msg_q.put((kind, text))
                     self.msg_q.put(("tick", None))
 
+                batch_error = ""
                 try:
                     conv.run(files, out, target, report=report)
                 except ConvertError as e:
-                    fail += 1
-                    self.msg_q.put(("err", str(e)))
-                    self.msg_q.put(("tick", None))
+                    batch_error = str(e)
                 except Exception as e:
-                    fail += 1
-                    self.msg_q.put(("err", f"转换异常: {e}"))
-                    self.msg_q.put(("tick", None))
+                    batch_error = f"转换异常: {e}"
+                missing = len(files) - reported
+                if missing > 0:
+                    fail += missing
+                    self.msg_q.put(("err", batch_error or f"有 {missing} 个文件未产出结果"))
+                    for _ in range(missing):
+                        self.msg_q.put(("tick", None))
             elif conv.per_file:
                 self.msg_q.put(("total", len(files)))
-                workers = max(1, min(int(getattr(conv, "workers", 1) or 1), len(files)))
+                workers = int(getattr(conv, "workers", 1) or 1)
+                if conv.src == CAT_IMG:
+                    workers = max(workers, min(8, os.cpu_count() or 4))
+                workers = max(1, min(workers, len(files)))
                 if workers == 1:
                     for f in files:
                         if self._cancel.is_set():
@@ -1995,13 +2037,13 @@ class App(TkinterDnD.Tk):
         item("文本：", "TXT / Markdown 直接排版为 PDF 或 Word 文档。")
 
         h("3. 输出与文件规则")
-        item("默认输出：", "第一个文件旁边的「格式转换输出」文件夹，可以随时改成其它目录。")
+        item("默认输出：", "第一个文件旁边的「格式转换输出」文件夹，可以随时改成其它目录；点「打开目录」可直接在资源管理器里查看结果。")
         item("不覆盖：", "输出文件同名时自动加 _1、_2 后缀，原文件不会被修改。")
         item("自动跳过：", "与当前方向扩展名不符的文件会跳过，并在日志里提示数量。")
         item("大文件夹：", "扫描时每 200 个一批加入队列；超过 50000 个文件会自动停止，避免卡顿。")
 
         h("4. 运行日志怎么用")
-        item("实时进度：", "每条日志带时间戳，成功为绿色、失败为红色，数量统计显示在标题右侧。")
+        item("实时进度：", "每条日志带时间戳，成功为绿色、失败为红色，数量统计显示在标题右侧；双击队列中的文件可打开它所在的文件夹。")
         item("调大窗口：", "拖动主界面与日志之间的横向分割条即可拉高日志区，默认比旧版本高很多。")
         item("保留现场：", "可关闭「自动滚动」向上翻看历史；点「复制全部」可把完整日志发给其他人排查。")
 
