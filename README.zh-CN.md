@@ -4,7 +4,7 @@
 
 **一个开箱即用的 Windows 批量格式转换器**，把图片、PDF、Office、音视频、结构化数据的转换收进同一个窗口。拖进去、选方向、点开始，没有广告、没有会员、不联网。
 
-[![CI](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
+[![CI](https://github.com/8848sing/format-converter/actions/workflows/ci.yml/badge.svg)](https://github.com/8848sing/format-converter/actions/workflows/ci.yml)
 ![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4)
 ![python](https://img.shields.io/badge/python-3.11%20%7C%203.12-3776AB)
 ![license](https://img.shields.io/badge/license-MIT-green)

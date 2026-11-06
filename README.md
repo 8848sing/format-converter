@@ -4,7 +4,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-[![CI](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
+[![CI](https://github.com/8848sing/format-converter/actions/workflows/ci.yml/badge.svg)](https://github.com/8848sing/format-converter/actions/workflows/ci.yml)
 ![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4)
 ![python](https://img.shields.io/badge/python-3.11%20%7C%203.12-3776AB)
 ![license](https://img.shields.io/badge/license-MIT-green)
