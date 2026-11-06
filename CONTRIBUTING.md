@@ -1,17 +1,19 @@
-# 参与贡献
+# Contributing
 
-感谢你愿意改进这个项目。提交前请先确认下面几点。
+Thanks for wanting to improve this project. Please go through the points below before opening a pull request.
 
-## 开发环境
+[English](CONTRIBUTING.md) | [简体中文](CONTRIBUTING.zh-CN.md)
 
-1. Windows 10/11 + Python 3.11 或 3.12（`pdf2docx` 对新版 Python 支持滞后）。
+## Development setup
+
+1. Windows 10/11 with Python 3.11 or 3.12 (`pdf2docx` lags behind new Python releases).
 2. `python -m pip install -r requirements.txt`
-3. `python main.py` 启动界面。
-4. `python main.py --self-test` 跑一遍全功能自检，结果写入 `self-test-result.json`。
+3. `python main.py` starts the UI.
+4. `python main.py --self-test` runs the full-feature self-test and writes `self-test-result.json`.
 
-Office 与音视频相关功能需要 `tools/LibreOffice` 和 `tools/FFmpeg`。这两个目录体积很大，不纳入版本库，获取方式见 `tools/README.md`。
+Office and audio/video features need `tools/LibreOffice` and `tools/FFmpeg`. Both directories are large and not tracked by git; see `tools/README.md` for how to obtain them.
 
-## 提交前检查
+## Checks before submitting
 
 ```powershell
 python -m ruff check .
@@ -19,14 +21,14 @@ python -m compileall -q main.py ui.py converters.py self_test.py version.py
 python -m unittest discover -s tests -v
 ```
 
-## 代码约定
+## Code conventions
 
-1. 转换逻辑放在 `converters.py`，界面逻辑放在 `ui.py`，两者不要互相侵入。
-2. 新增转换方式时，在 `CONVERSIONS` 注册表登记，并补一条 `tests/test_registry.py` 能覆盖的结构约束。
-3. 失败统一抛 `ConvertError`，由界面逐文件捕获，保证单个文件失败不中断整批任务。
-4. 不要写死本机绝对路径；外部工具统一走 `settings.json` 或 `tools/` 探测。
-5. 不引入需要联网下载的运行时依赖，也不执行来源不明的安装脚本。
+1. Conversion logic belongs in `converters.py`, UI logic in `ui.py`; neither should reach into the other's responsibilities.
+2. A new conversion mode must be registered in the `CONVERSIONS` table and covered by a structural constraint that `tests/test_registry.py` can check.
+3. Failures raise `ConvertError` uniformly; the UI catches it per file so one bad file never aborts a batch.
+4. Never hard-code absolute paths from your machine; external tools are resolved through `settings.json` or `tools/` discovery.
+5. Do not add runtime dependencies that require a network download, and do not execute installers or scripts of unknown origin.
 
-## 提交信息
+## Commit messages
 
-使用简短的祈使句，例如 `fix: 修复 PDF 拆分同名覆盖`、`feat: 支持 AVIF 输出`。
+Use short imperative sentences in English, for example `fix: prevent PDF split from overwriting same-named files`, `feat: support AVIF output`.

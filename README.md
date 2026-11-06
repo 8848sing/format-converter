@@ -1,48 +1,50 @@
-# 格式转换工具
+# Format Converter
 
-**一个开箱即用的 Windows 批量格式转换器**，把图片、PDF、Office、音视频、结构化数据的转换收进同一个窗口。拖进去、选方向、点开始，没有广告、没有会员、不联网。
+**A zero-setup batch format converter for Windows.** Images, PDF, Office documents, audio/video and structured data all live in one window. Drag files in, pick a direction, hit Start — no ads, no accounts, no network calls.
+
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 [![CI](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
 ![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4)
 ![python](https://img.shields.io/badge/python-3.11%20%7C%203.12-3776AB)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
-![界面预览](docs/screenshot.png)
+![Screenshot](docs/screenshot.png)
 
 > Format Converter is a portable Windows batch conversion toolbox built with Tkinter — 30 conversion modes across images, PDF, Office documents, audio/video and structured data. No ads, no accounts, no telemetry.
 
-## 为什么是它
+## Why this one
 
-- **一个入口，30 种转换方式**：不用再为了转个格式满网找在线工具。
-- **真批量**：整个文件夹拖进来，图片、PDF、音视频、数据转换多线程并行。8 张 3200×2000 图片转 WebP，从 8.4 s 降到 2.6 s。
-- **可取消、不覆盖**：随时停止后续任务；同名输出自动加 `_1`、`_2`，原文件永远不动。
-- **纯本地**：转换全部在本机完成，不上传文件、不联网、不收集数据。
-- **便携**：单个 exe 即可运行图片 / PDF / 数据 / 文本转换；带上 `tools/` 目录就能处理 Office 和音视频。
-- **照片不会躺倒**：自动读取 EXIF 方向标记，手机拍的照片转出来方向正确。
+- **One entry point, 30 conversion modes.** Stop hunting for a different online tool every time you need a format.
+- **Truly batch.** Drop a whole folder in: images, PDF, audio/video and data conversions run in parallel across threads. Converting 8 images at 3200×2000 to WebP went from 8.4 s to 2.6 s.
+- **Cancellable and non-destructive.** Stop the remaining queue at any time; colliding output names get `_1`, `_2` suffixes, and source files are never touched.
+- **Fully local.** Every conversion happens on your machine — no uploads, no network, no data collection.
+- **Portable.** The single exe handles images, PDF, data and text. Add the `tools/` directory and Office plus audio/video work too.
+- **Photos stay upright.** EXIF orientation is applied automatically, so phone shots never come out sideways or upside down.
 
-## 功能一览
+## What it converts
 
-| 类别 | 输入 | 可以做什么 |
+| Category | Input | Capabilities |
 | --- | --- | --- |
-| 图片 | JPG、PNG、WebP、AVIF、HEIC/HEIF、ICO、TIFF、BMP、GIF、TGA、PPM | 格式互转、每张转 PDF、多张合并 PDF、合成循环 GIF |
-| PDF | PDF | 转图片（每页一张）、转可编辑 Word、转 Excel、转 PPT、转纯文本、合并、逐页拆分、旋转、内容流压缩 |
-| Word | DOC、DOCX、RTF、ODT | 转 PDF、转图片、转纯文本、在 doc/docx/odt/rtf 之间互转 |
-| Excel | XLS、XLSX、ODS、CSV | 转 PDF、转图片、在 xlsx/xls/ods/csv 之间互转、转 JSON |
-| PPT | PPT、PPTX、ODP | 转 PDF、转图片、在 pptx/ppt/odp 之间互转 |
-| 文本 | TXT、Markdown | 转 PDF、转 Word |
-| 音频 | MP3、WAV、FLAC、M4A、AAC、OGG、OPUS、WMA、AIFF、AMR | 输出 MP3 / WAV / FLAC / M4A / AAC / OGG / OPUS / WMA |
-| 视频 | MP4、M4V、MKV、MOV、WebM、AVI、WMV、FLV、TS、MTS、M2TS、3GP | 输出 MP4 / MKV / MOV / WebM / AVI / WMV / GIF，或提取音轨 |
-| 数据 | JSON、YAML、XML、XLSX、CSV | JSON / YAML / XML 互转、展开为 Excel、表格转 JSON |
+| Image | JPG, PNG, WebP, AVIF, HEIC/HEIF, ICO, TIFF, BMP, GIF, TGA, PPM | Convert between formats, one image per PDF, merge several into one PDF, build looping GIFs |
+| PDF | PDF | To images (one per page), editable Word, Excel, PowerPoint, plain text; merge, split per page, rotate, compress content streams |
+| Word | DOC, DOCX, RTF, ODT | To PDF, to images, to plain text; convert among doc/docx/odt/rtf |
+| Excel | XLS, XLSX, ODS, CSV | To PDF, to images; convert among xlsx/xls/ods/csv; to JSON |
+| PowerPoint | PPT, PPTX, ODP | To PDF, to images; convert among pptx/ppt/odp |
+| Text | TXT, Markdown | To PDF, to Word |
+| Audio | MP3, WAV, FLAC, M4A, AAC, OGG, OPUS, WMA, AIFF, AMR | Output MP3 / WAV / FLAC / M4A / AAC / OGG / OPUS / WMA |
+| Video | MP4, M4V, MKV, MOV, WebM, AVI, WMV, FLV, TS, MTS, M2TS, 3GP | Output MP4 / MKV / MOV / WebM / AVI / WMV / GIF, or extract audio |
+| Data | JSON, YAML, XML, XLSX, CSV | JSON / YAML / XML interconversion, flatten into Excel, tables to JSON |
 
-完整注册表见 [`converters.py`](converters.py) 中的 `CONVERSIONS`，共 30 项。
+The full registry is `CONVERSIONS` in [`converters.py`](converters.py) — 30 entries.
 
-## 快速开始
+## Quick start
 
-### 方式一：下载发布版
+### Option 1: download a release
 
-在 [Releases](../../releases) 页面下载 `格式转换工具.exe`，双击即可。首次运行若出现 SmartScreen「未知发布者」提示，是因为项目没有购买代码签名证书，选择「更多信息 → 仍要运行」即可。
+Grab `格式转换工具.exe` from the [Releases](../../releases) page and double-click it. On first launch SmartScreen may warn about an "unknown publisher" because the project has no code-signing certificate — choose "More info → Run anyway".
 
-### 方式二：从源码运行
+### Option 2: run from source
 
 ```powershell
 git clone https://github.com/8848sing/format-converter.git
@@ -51,19 +53,19 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
-要求 Windows 10/11、Python 3.11 或 3.12（`pdf2docx` 对新版本 Python 的适配通常会滞后）。
+Requires Windows 10/11 and Python 3.11 or 3.12 (`pdf2docx` usually lags behind new Python releases).
 
-### 自检
+### Self-test
 
 ```powershell
 python main.py --self-test
 ```
 
-会依次跑一遍图片、PDF、Office、音视频、数据转换，结果写入 `self-test-result.json`。缺少 `tools/` 时，Office 与 FFmpeg 相关项会标记为失败。
+This runs image, PDF, Office, audio/video and data conversions in sequence and writes the result to `self-test-result.json`. Without `tools/`, the Office and FFmpeg entries are reported as failures.
 
-## 关于 `tools/`
+## About `tools/`
 
-Office 与音视频转换依赖两个外部程序，体积很大（合计约 1.06 GB），因此**不进版本库**，需要自行放置：
+Office and audio/video conversion depend on two external programs that are far too large for version control (about 1.06 GB combined). Place them yourself:
 
 ```text
 tools/
@@ -71,10 +73,10 @@ tools/
 └─ LibreOffice/program/soffice.exe
 ```
 
-- FFmpeg：从 [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) 下载 LGPL 构建，解压到 `tools/FFmpeg/`。
-- LibreOffice：可使用 [LibreOffice Portable](https://www.libreoffice.org/download/portable-versions/)，解压到 `tools/LibreOffice/`。
+- FFmpeg: download an LGPL build from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) and extract it into `tools/FFmpeg/`.
+- LibreOffice: [LibreOffice Portable](https://www.libreoffice.org/download/portable-versions/) works; extract it into `tools/LibreOffice/`.
 
-也可以在程序根目录新建 `settings.json` 指定已有路径：
+Alternatively create `settings.json` next to the executable and point at existing installs:
 
 ```json
 {
@@ -83,65 +85,66 @@ tools/
 }
 ```
 
-来源、版本、SHA-256 与校验方法见 [`THIRD_PARTY_SECURITY.md`](THIRD_PARTY_SECURITY.md)。
+Sources, versions, SHA-256 hashes and the verification steps are in [`THIRD_PARTY_SECURITY.md`](THIRD_PARTY_SECURITY.md).
 
-## 打包
+## Building
 
 ```powershell
 python -m pip install -r requirements.txt pyinstaller
 python -m PyInstaller --clean --noconfirm 格式转换工具.spec
 ```
 
-产物在 `dist/格式转换工具.exe`。打包配置已关闭 UPX 以降低杀毒软件误报，并把 FFmpeg 保持为外置文件。`build/`、`dist/` 和 `*.exe` 均被 `.gitignore` 排除，发布请使用 GitHub Releases。
+The artifact is `dist/格式转换工具.exe`. The spec disables UPX to reduce antivirus false positives and keeps FFmpeg external. `build/`, `dist/` and `*.exe` are all git-ignored — ship builds through GitHub Releases.
 
-## 项目结构
+## Project layout
 
 ```text
-├─ main.py                 # 入口：高 DPI、--version、--self-test
-├─ ui.py                   # Tkinter / ttkbootstrap 界面与线程调度
-├─ converters.py           # 全部转换实现 + CONVERSIONS 注册表
-├─ version.py              # 版本号唯一来源
-├─ self_test.py            # 全功能自检
-├─ tests/test_registry.py  # 注册表结构测试（无第三方依赖）
-├─ docs/screenshot.png     # 界面截图
-├─ tools/                  # 外部二进制，git 忽略
+├─ main.py                 # entry point: high-DPI, --version, --self-test
+├─ ui.py                   # Tkinter / ttkbootstrap UI and thread scheduling
+├─ converters.py           # every conversion implementation + CONVERSIONS registry
+├─ version.py              # single source of truth for the version string
+├─ self_test.py            # full-feature self-test
+├─ tests/test_registry.py  # registry structure test (no third-party deps)
+├─ docs/screenshot.png     # UI screenshot
+├─ tools/                  # external binaries, git-ignored
 ├─ requirements.txt
-└─ 格式转换工具.spec        # PyInstaller 配置
+└─ 格式转换工具.spec        # PyInstaller configuration
 ```
 
-## 设计说明
+## Design notes
 
-- 转换逻辑与界面分离：`converters.py` 只依赖标准库和按需导入的第三方库，启动时不会加载重型依赖。
-- 统一异常：转换失败抛 `ConvertError`，界面逐文件捕获，单个文件失败不会中断整批任务。
-- 有界并发：按任务类型设置 2～4 个线程，并只提前排队 2 倍任务，避免几万个文件一次性占满内存。
-- 输出占位：并行转换时用锁登记已分配的文件名，避免同名文件互相覆盖。
-- 调用外部程序一律使用参数数组，不经过 shell，文件名不会被解释成命令。
+- Conversion logic is isolated from the UI: `converters.py` only uses the standard library plus lazily imported third-party packages, so startup never loads heavy dependencies.
+- One error type: failures raise `ConvertError`, the UI catches it per file, and a single bad file never aborts the batch.
+- Bounded concurrency: 2–4 worker threads per task type, with at most 2× the tasks queued ahead, so tens of thousands of files don't exhaust memory.
+- Output reservations: a lock registers allocated filenames during parallel conversion, so two workers can never write the same path.
+- External programs are always invoked with argument arrays, never through a shell, so filenames are never interpreted as commands.
 
-## 更新日志
+## Changelog
 
 ### v1.5.0
 
-- 图片批量转换按 CPU 核数自动提升并发（最多 8 路），多核机器吞吐更高。
-- WebP 改用更快的编码档位，体积基本不变，速度约提升四成。
-- PNG 去掉收益极低的穷举压缩，转换速度约提升一倍。
-- 手机照片自动应用 EXIF 方向，不再出现横躺或倒置。
-- PDF 转纯文本改用 pypdfium2 原生提取，大文档明显更快，提不到时自动回退 pdfplumber。
-- 输出位置旁新增「打开目录」按钮；双击队列文件可直接打开所在文件夹。
-- 修复：Office 产出空文件被误算成功；批次级失败时进度条卡住、成功/失败数对不上。
-- 修复：图片转 PDF / 合并 PDF 未及时释放文件句柄；大批量转换时内存峰值更低。
+- Image batch conversion now scales to CPU cores (up to 8 workers), for higher throughput on multi-core machines.
+- WebP switched to a faster encoder preset: roughly 40% faster at about the same file size.
+- PNG dropped the low-yield exhaustive compression search: about twice as fast.
+- Phone photos now apply EXIF orientation automatically — no more sideways or inverted output.
+- PDF-to-text now uses pypdfium2's native extraction, noticeably faster on large documents, with automatic fallback to pdfplumber.
+- Added an "Open folder" button next to the output location; double-clicking a queue item opens its folder.
+- Fixed: empty Office output files were counted as successes; batch-level failures left the progress bar stuck and success/failure counts mismatched.
+- Fixed: image-to-PDF and PDF merge did not release file handles promptly; memory peak is now lower for large batches.
 
-## 已知限制
+## Known limitations
 
-- PDF 转 Word / Excel / PPT 依赖原文件的文字层与结构；扫描件需要先做 OCR。
-- PDF 转 PPT 是「整页图片版」，文字不可编辑。
-- PDF 压缩只处理内容流和重复对象，不会重新压缩已嵌入的高清图片。
-- 压缩包内没有 `tools/` 时，Office 和音视频转换会提示找不到 LibreOffice / FFmpeg。
-- 没有商业代码签名，SmartScreen 可能提示「未知发布者」。
+- PDF to Word / Excel / PowerPoint depends on the text layer and structure of the source; scanned documents need OCR first.
+- PDF to PowerPoint is a "page images" conversion — the text is not editable.
+- PDF compression only rewrites content streams and duplicate objects; embedded high-resolution images are not re-encoded.
+- Without `tools/` in the package, Office and audio/video conversion report that LibreOffice / FFmpeg cannot be found.
+- There is no commercial code-signing certificate, so SmartScreen may warn about an unknown publisher.
+- The application UI is currently in Chinese only; the documentation here is bilingual.
 
-## 参与贡献
+## Contributing
 
-欢迎提 Issue 和 PR，提交前请先看 [`CONTRIBUTING.md`](CONTRIBUTING.md)。CI 会运行 Ruff、语法编译和注册表测试。
+Issues and pull requests are welcome — please read [`CONTRIBUTING.md`](CONTRIBUTING.md) first. CI runs Ruff, a compile check and the registry tests.
 
-## 许可证
+## License
 
-本项目以 [MIT License](LICENSE) 开源。随包分发的 FFmpeg 为 LGPL 构建，LibreOffice 为 MPL 2.0，二者遵循各自许可证，详见 [`THIRD_PARTY_SECURITY.md`](THIRD_PARTY_SECURITY.md)。
+Released under the [MIT License](LICENSE). The bundled FFmpeg is an LGPL build and LibreOffice is MPL 2.0; each follows its own license — see [`THIRD_PARTY_SECURITY.md`](THIRD_PARTY_SECURITY.md).

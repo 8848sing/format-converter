@@ -4,6 +4,7 @@
 *.dll
 tools/*
 !tools/README.md
+!tools/README.zh-CN.md
 
 # Python
 __pycache__/

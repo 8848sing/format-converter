@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "format-converter"
 dynamic = ["version"]
-description = "Windows 便携式批量格式转换工具：图片、PDF、Office、音视频、结构化数据"
+description = "Portable Windows batch format converter for images, PDF, Office documents, audio/video and structured data"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 license = { text = "MIT" }
