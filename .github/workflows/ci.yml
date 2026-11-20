@@ -28,12 +28,18 @@ jobs:
         run: python -m unittest discover -s tests -v
 
   cpp:
-    # C++ 核心的构建检查：不同 Windows 镜像的 MSVC/CMake 版本差异偶尔会让这一步
-    # 变红，但它不是发布阻塞项（真实发布用本地 Zig 工具链构建），因此允许失败。
+    # C++ 核心的构建检查。用 windows-2022 而不是 windows-latest：
+    # 新的 windows-2025 镜像里 CMake 找不到 Visual Studio 实例。
+    # 真实发布用本地 Zig 工具链构建，这里失败也不阻塞发布。
     continue-on-error: true
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
 
       - name: Download PDFium
         shell: pwsh
@@ -43,12 +49,12 @@ jobs:
           tar -xzf pdfium-win-x64.tgz -C cpp/third_party/pdfium-win
 
       - name: Configure
-        run: cmake -S cpp -B cpp/build -G "Visual Studio 17 2022" -A x64 -DFC_PDFIUM_DIR="$PWD/cpp/third_party/pdfium-win"
+        run: cmake -S cpp -B cpp/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DFC_PDFIUM_DIR="$PWD/cpp/third_party/pdfium-win"
 
       - name: Build
-        run: cmake --build cpp/build --config Release --parallel
+        run: cmake --build cpp/build --parallel
 
       - name: Smoke test
         run: |
-          .\cpp\build\Release\fccli.exe --version
-          .\cpp\build\Release\fccli.exe list | Out-Null
+          .\cpp\build\fccli.exe --version
+          .\cpp\build\fccli.exe list | Out-Null
