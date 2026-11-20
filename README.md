@@ -45,7 +45,7 @@ The full registry is `CONVERSIONS` in [`converters.py`](converters.py) — 30 en
 
 ### Option 1: download a release
 
-Grab `格式转换工具.exe` from the [Releases](../../releases) page and double-click it. On first launch SmartScreen may warn about an "unknown publisher" because the project has no code-signing certificate — choose "More info → Run anyway".
+Grab the latest Windows package (`format-converter-vX.Y.Z-win-x64.exe`) from the [Releases](../../releases) page and double-click it. On first launch SmartScreen may warn about an "unknown publisher" because the project has no code-signing certificate — choose "More info → Run anyway".
 
 ### Option 2: run from source
 

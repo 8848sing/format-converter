@@ -3,7 +3,7 @@
 #include "fs_utils.h"
 #include "image.h"
 #include "pdf_ops.h"
-#include "process.h"
+#include "process_util.h"
 
 #include <algorithm>
 #include <set>
