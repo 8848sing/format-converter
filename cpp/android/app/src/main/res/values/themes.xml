@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="AppTheme" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/brand_primary</item>
+        <item name="colorOnPrimary">@color/on_primary</item>
+        <item name="colorPrimaryContainer">@color/primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/on_primary_container</item>
+        <item name="colorSecondaryContainer">@color/secondary_container</item>
+        <item name="colorOnSecondaryContainer">@color/on_secondary_container</item>
+        <item name="android:colorBackground">@color/app_background</item>
+        <item name="colorSurface">@color/app_surface</item>
+        <item name="colorOnSurface">@color/app_on_surface</item>
+        <item name="colorSurfaceVariant">@color/app_surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/app_muted</item>
+        <item name="colorOutline">@color/app_outline</item>
+        <item name="colorError">@color/app_error</item>
+        <item name="android:statusBarColor">@color/app_background</item>
+        <item name="android:navigationBarColor">@color/app_background</item>
+        <item name="chipStyle">@style/AppChip</item>
+        <item name="materialCardViewStyle">@style/AppCard</item>
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.Material3.MaterialAlertDialog</item>
+    </style>
+
+    <!-- 筛选胶囊：未选中=浅底，选中=主色填充 -->
+    <style name="AppChip" parent="Widget.Material3.Chip.Filter">
+        <item name="chipMinHeight">34dp</item>
+        <item name="chipCornerRadius">17dp</item>
+        <item name="ensureMinTouchTargetSize">false</item>
+        <item name="chipStrokeWidth">0dp</item>
+        <item name="chipBackgroundColor">@color/chip_background</item>
+        <item name="android:textColor">@color/chip_text</item>
+        <item name="android:textSize">13sp</item>
+        <item name="chipStartPadding">14dp</item>
+        <item name="chipEndPadding">14dp</item>
+        <item name="chipIconVisible">false</item>
+        <item name="checkedIconVisible">false</item>
+    </style>
+
+    <!-- 卡片：无阴影 + 细描边 + 大圆角 -->
+    <style name="AppCard" parent="Widget.Material3.CardView.Elevated">
+        <item name="cardCornerRadius">22dp</item>
+        <item name="cardElevation">0dp</item>
+        <item name="cardBackgroundColor">@color/app_surface</item>
+        <item name="strokeColor">@color/app_outline</item>
+        <item name="strokeWidth">1dp</item>
+    </style>
+
+    <style name="AppButton" parent="Widget.Material3.Button">
+        <item name="android:textSize">15sp</item>
+        <item name="cornerRadius">26dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:minHeight">52dp</item>
+    </style>
+
+    <style name="AppButtonOutlined" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:textSize">15sp</item>
+        <item name="cornerRadius">26dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:minHeight">52dp</item>
+        <item name="strokeColor">@color/app_outline</item>
+    </style>
+
+    <style name="AppTextButton" parent="Widget.Material3.Button.TextButton">
+        <item name="android:textSize">13sp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:minHeight">32dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+    </style>
+
+    <!-- 小节标题 -->
+    <style name="SectionLabel">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/app_muted</item>
+    </style>
+
+</resources>

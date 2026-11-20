@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import queue
+import re
 import threading
 import time
 from pathlib import Path
@@ -20,13 +21,14 @@ from tkinterdnd2 import DND_FILES, TkinterDnD
 
 from converters import (
     CATEGORY_EXTS,
-    CAT_IMG,
     ConvertError,
     categories_src,
     convs_for,
     dsts_for,
+    engine_info,
     pair_exists,
 )
+import settings_store
 from version import version_text
 
 # ---------------------------------------------------------------------------
@@ -505,6 +507,18 @@ class App(TkinterDnD.Tk):
         self._autoscroll = True
         self._log_ok = 0
         self._log_err = 0
+        self._prefs = settings_store.ui_prefs()
+        self._row_state: dict[str, str] = {}
+        self._batch_files: list[Path] = []
+        self._started_at = 0.0
+        self._engine = engine_info()
+        self._quality = int(self._prefs.get("quality", 92) or 92)
+        self._dpi = int(self._prefs.get("dpi", 200) or 200)
+        self._workers = int(self._prefs.get("workers", 0) or 0)
+        self._failed_files: list[Path] = []
+        self._filter_text = ""
+        self._row_states: dict[int, tuple[str, str]] = {}
+        self._filter_job = None
 
         self._setup_styles()
         self._build()
@@ -518,6 +532,8 @@ class App(TkinterDnD.Tk):
         self.after(120, self._init_sash)
         self.after(50, self._poll_queue)
         self.after(100, self._poll_scan)
+        self.after(200, self._restore_prefs)
+        self.after(240, self._refresh_run_state)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _set_window_icon(self):
@@ -540,15 +556,84 @@ class App(TkinterDnD.Tk):
             self.iconphoto(True, self._window_icon)
         except Exception:
             pass
+    def _work_area(self):
+        """屏幕可用区域（物理像素）：已扣掉任务栏，窗口不会压到任务栏底下。"""
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            rect = wintypes.RECT()
+            if ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0):
+                width = int(rect.right - rect.left)
+                height = int(rect.bottom - rect.top)
+                if width > 400 and height > 300:
+                    return width, height
+        except Exception:
+            pass
+        return self.winfo_screenwidth(), self.winfo_screenheight()
+
+    def _frame_padding(self):
+        """窗口外框比客户区多出来的部分（标题栏 + 边框），物理像素。"""
+        try:
+            import ctypes
+
+            user32 = ctypes.windll.user32
+            caption = int(user32.GetSystemMetrics(4))      # SM_CYCAPTION
+            frame_x = int(user32.GetSystemMetrics(32))     # SM_CXSIZEFRAME
+            frame_y = int(user32.GetSystemMetrics(33))     # SM_CYSIZEFRAME
+            return max(16, frame_x * 2), max(16, caption + frame_y * 2)
+        except Exception:
+            return px(16), px(40)
+
+    def _default_size(self):
+        """按工作区算一个「撑满大部分屏幕、又不压到任务栏」的窗口尺寸（客户区物理像素）。"""
+        work_w, work_h = self._work_area()
+        pad_w, pad_h = self._frame_padding()
+        # 标题栏的实际高度会随 DPI / 主题差几个像素，多留一点，宁可窗口矮一点。
+        pad_w = max(pad_w, px(24))
+        pad_h = max(pad_h, px(56))
+        width = min(px(1500), max(1, work_w - pad_w))
+        height = min(px(1000), max(1, work_h - pad_h))
+        return (
+            work_w,
+            work_h,
+            max(width, min(px(1120), work_w)),
+            max(height, min(px(700), work_h)),
+            pad_w,
+            pad_h,
+        )
+
     def _center(self):
         self.update_idletasks()
-        screen_w, screen_h = self.winfo_screenwidth(), self.winfo_screenheight()
-        width = min(px(1500), max(px(1120), screen_w - px(60)))
-        height = min(px(1000), max(px(760), screen_h - px(70)))
-        self.minsize(px(1120), px(700))
-        x = max(0, (screen_w - width) // 2)
-        y = max(0, (screen_h - height) // 3)
+        # geometry 的单位是物理像素（进程已声明 DPI 感知），工作区也按物理像素返回，
+        # 两者可以直接相减。旧代码先把屏幕宽度除以缩放比再减边距，在 150% 缩放的
+        # 2560x1440 屏上只会开出一个 1119x639 的小窗口，底部日志区被挤成一条缝。
+        work_w, work_h, width, height, _pad_w, _pad_h = self._default_size()
+        self.minsize(min(px(1120), work_w), min(px(700), work_h))
+        x = max(0, (work_w - width) // 2)
+        y = max(0, (work_h - height) // 3)
         self.geometry(f'{width}x{height}+{x}+{y}')
+
+    def _clamp_geometry(self, geo: str) -> str:
+        """把上次保存的窗口位置/大小收回到当前屏幕工作区内。"""
+        match = re.fullmatch(r"(\d+)x(\d+)([+-]\d+)([+-]\d+)", str(geo).strip())
+        if not match:
+            return geo
+        width, height = int(match.group(1)), int(match.group(2))
+        x, y = int(match.group(3)), int(match.group(4))
+        work_w, work_h, default_w, default_h, pad_w, pad_h = self._default_size()
+        min_w, min_h = min(px(1120), work_w), min(px(700), work_h)
+        # 旧版本在 150% 缩放下算出的窗口正好卡在最小尺寸上（1678x959），
+        # 这种尺寸不是用户自己选的，直接换成新的自适应尺寸并居中。
+        if width <= min_w and height <= min_h:
+            width, height = default_w, default_h
+            x = max(0, (work_w - width - pad_w) // 2)
+            y = max(0, (work_h - height - pad_h) // 3)
+        width = max(min(width, work_w - pad_w), min_w)
+        height = max(min(height, work_h - pad_h), min_h)
+        x = min(max(0, x), max(0, work_w - width - pad_w))
+        y = min(max(0, y), max(0, work_h - height - pad_h))
+        return f"{width}x{height}+{x}+{y}"
 
     # ------------------------------------------------------------ 样式
     def _setup_styles(self):
@@ -666,8 +751,8 @@ class App(TkinterDnD.Tk):
         log_holder.grid_columnconfigure(0, weight=1)
         self._build_log(log_holder)
 
-        self.split.add(dashboard, minsize=px(520), stretch="always")
-        self.split.add(log_holder, minsize=px(150), height=px(230), stretch="never")
+        self.split.add(dashboard, minsize=px(380), stretch="always")
+        self.split.add(log_holder, minsize=px(36), height=px(40), stretch="never")
 
     def _build_header(self):
         header = tk.Frame(self, bg=BG, height=px(78))
@@ -710,6 +795,25 @@ class App(TkinterDnD.Tk):
             pady=8,
         )
         self.header_status.grid(row=0, column=2, rowspan=2, padx=(10, 10))
+        self.engine_btn = PillButton(
+            header,
+            text=self._engine_badge_text(),
+            command=self._show_settings,
+            width=110,
+            height=32,
+            fill=SURFACE_ALT,
+            hover=SURFACE_HOVER,
+            fg=PRIMARY if self._engine.get("available") else WARNING,
+            outer_bg=BG,
+            font=(UI_FONT, 9, "bold"),
+            radius=10,
+        )
+        self.engine_btn.grid(row=0, column=3, rowspan=2, padx=(0, 8))
+        Tooltip(
+            self.engine_btn,
+            self._engine_tooltip(),
+            wraplength=360,
+        )
         help_btn = PillButton(
             header,
             text="使用说明",
@@ -722,10 +826,35 @@ class App(TkinterDnD.Tk):
             outer_bg=BG,
             font=(UI_FONT, 9, "bold"),
         )
-        help_btn.grid(row=0, column=3, rowspan=2)
+        help_btn.grid(row=0, column=4, rowspan=2)
+
+    def _engine_badge_text(self) -> str:
+        info = getattr(self, "_engine", {}) or {}
+        if info.get("available"):
+            return "⚡ C++ 核心"
+        mode = info.get("mode", "auto")
+        if mode == "python":
+            return "🐍 Python 引擎"
+        return "⚠ 核心缺失"
+
+    def _engine_tooltip(self) -> str:
+        info = getattr(self, "_engine", {}) or {}
+        if info.get("available"):
+            lines = ["当前由 C++ 核心执行转换（速度更快、支持取消）。"]
+            cli = info.get("cli", "")
+            if cli:
+                lines.append(f"核心路径：{cli}")
+            core = info.get("core_version", "")
+            if core:
+                lines.append(f"核心版本：{core}")
+            lines.append("点击打开设置：切换引擎、指定 LibreOffice / FFmpeg、调整默认参数。")
+            return "\n".join(lines)
+        lines = ["没有找到 bin/fccli.exe，将使用内置 Python 引擎（较慢，部分格式不支持）。"]
+        lines.append("点击打开设置，可查看原因与手动指定核心位置。")
+        return "\n".join(lines)
 
     def _build_drop_zone_v2(self, parent):
-        card = RoundedCard(parent, fill=DROP_BLUE, outline=DROP_BLUE_EDGE, radius=18, padding=11, height=158)
+        card = RoundedCard(parent, fill=DROP_BLUE, outline=DROP_BLUE_EDGE, radius=18, padding=11, height=162)
         card.grid(row=0, column=0, sticky='nsew')
         self.drop_card = card
         box = card.inner
@@ -877,6 +1006,7 @@ class App(TkinterDnD.Tk):
         self.frm_opt.grid(row=0, column=1, sticky="e", padx=(10, 0))
         self.frm_opt.grid_remove()
 
+
         self.desc_box = tk.Frame(self.detail, bg=SURFACE_ALT)
         self.desc_box.pack(fill="x", pady=(4, 0))
         self.lbl_desc = tk.Label(
@@ -910,6 +1040,29 @@ class App(TkinterDnD.Tk):
             wraplength=330,
         )
         self.direction_hint.pack(fill="x", pady=(6, 0))
+
+        # 左侧栏在 1080p 以上会多出不少空白，这里放常驻的快捷键提示，
+        # 既不浪费空间，也把「还有什么操作」告诉第一次用的人。
+        self.tips_box = tk.Frame(box, bg=SURFACE)
+        # 用 side="bottom" 占住卡片底部：详情区（当前任务/方式/说明）是随后按需
+        # pack 的，若这里用 expand 会把详情挤到最下面。
+        self.tips_box.pack(side="bottom", fill="x", pady=(12, 0))
+        tk.Frame(self.tips_box, bg=BORDER, height=1).pack(fill="x", pady=(0, 8))
+        tk.Label(
+            self.tips_box, text="快捷键与小技巧", font=(UI_FONT, 9, "bold"),
+            bg=SURFACE, fg=MUTED,
+        ).pack(anchor="w")
+        for _line in (
+            "Ctrl+O 添加文件　Ctrl+L 清空日志",
+            "把整个文件夹拖进来会递归收集文件",
+            "转换中可以随时取消，已完成的文件保留",
+            "双击队列里的文件，直接打开所在文件夹",
+        ):
+            tk.Label(
+                self.tips_box, text="· " + _line, font=FONT_TINY, bg=SURFACE,
+                fg=TEXT_SOFT, anchor="w", justify="left",
+            ).pack(fill="x", pady=(3, 0))
+
         box.bind(
             "<Configure>",
             lambda e: (
@@ -924,8 +1077,8 @@ class App(TkinterDnD.Tk):
             fill=SURFACE,
             outline=BORDER,
             radius=18,
-            padding=14,
-            height=102,
+            padding=12,
+            height=88,
         )
         card.grid(row=0, column=0, sticky="ew", pady=(0, 12))
         box = card.inner
@@ -975,8 +1128,8 @@ class App(TkinterDnD.Tk):
             fill=SURFACE,
             outline=BORDER,
             radius=18,
-            padding=14,
-            height=280,
+            padding=12,
+            height=160,
         )
         card.grid(row=1, column=0, sticky="nsew")
         box = card.inner
@@ -997,9 +1150,13 @@ class App(TkinterDnD.Tk):
             pady=4,
         )
         self.lbl_file_count.pack(side="left", padx=(9, 0))
+        # 队列一大就难找文件，这里给一个即时筛选框（只影响显示，不影响转换范围）。
+        self.search_entry = tb.Entry(head, font=FONT_TINY, width=16)
+        self.search_entry.pack(side="right", padx=(6, 0))
+        self.search_entry.bind("<KeyRelease>", lambda _e: self._schedule_filter())
         tk.Label(
             head,
-            text="拖放加入，或点下方按钮；转换时也能继续加文件",
+            text="筛选",
             font=FONT_TINY,
             bg=SURFACE,
             fg=MUTED,
@@ -1076,19 +1233,26 @@ class App(TkinterDnD.Tk):
 
         self.tree = ttk.Treeview(
             tree_wrap,
-            columns=("name", "kind", "size", "folder"),
+            columns=("name", "state", "kind", "size", "folder"),
             show="headings",
             selectmode="extended",
             style="Modern.Treeview",
         )
         self.tree.heading("name", text="文件名")
+        self.tree.heading("state", text="状态")
         self.tree.heading("kind", text="类型")
         self.tree.heading("size", text="大小")
         self.tree.heading("folder", text="所在文件夹")
-        self.tree.column("name", width=px(240), minwidth=px(150), stretch=True)
-        self.tree.column("kind", width=px(86), minwidth=px(66), stretch=False)
-        self.tree.column("size", width=px(78), minwidth=px(62), stretch=False)
-        self.tree.column("folder", width=px(260), minwidth=px(130), stretch=True)
+        # 列宽总和控制在右侧卡片约 780px 内，避免出现横向滚动把状态列挤出去。
+        self.tree.column("name", width=px(200), minwidth=px(120), stretch=True)
+        self.tree.column("state", width=px(122), minwidth=px(88), stretch=False)
+        self.tree.column("kind", width=px(78), minwidth=px(60), stretch=False)
+        self.tree.column("size", width=px(68), minwidth=px(56), stretch=False)
+        self.tree.column("folder", width=px(170), minwidth=px(90), stretch=True)
+        self.tree.tag_configure("ok", foreground=SUCCESS)
+        self.tree.tag_configure("err", foreground=ERROR)
+        self.tree.tag_configure("running", foreground=WARNING)
+        self.tree.tag_configure("skip", foreground=MUTED)
         self.tree.grid(row=0, column=0, sticky="nsew")
         self.tree.bind("<Double-1>", self._open_selected_location)
         sb = ttk.Scrollbar(tree_wrap, orient="vertical", command=self.tree.yview)
@@ -1113,7 +1277,7 @@ class App(TkinterDnD.Tk):
             outline=BORDER,
             radius=18,
             padding=14,
-            height=124,
+            height=150,
         )
         card.grid(row=2, column=0, sticky="ew", pady=(12, 0))
         box = card.inner
@@ -1138,10 +1302,71 @@ class App(TkinterDnD.Tk):
         )
         self.lbl_progress_text.pack(side="right", padx=(0, 12))
 
-        bottom = tk.Frame(box, bg=SURFACE)
-        bottom.pack(fill="x", pady=(10, 0))
+        # 输出质量 / 渲染 DPI：只在对应转换方式下出现。
+        # 放在执行卡片里而不是方向卡片里，避免把左侧内容撑高、挤掉开始按钮。
+        self.frm_tuning = tk.Frame(box, bg=SURFACE)
+        self.frm_tuning.pack(fill="x", pady=(8, 0))
+
+        self.row_quality = tk.Frame(self.frm_tuning, bg=SURFACE)
+        tk.Label(self.row_quality, text="输出质量", font=FONT_TINY, bg=SURFACE,
+                 fg=MUTED).pack(side="left", padx=(0, 8))
+        self.scale_quality = tk.Scale(
+            self.row_quality,
+            from_=10,
+            to=100,
+            orient="horizontal",
+            bg=SURFACE,
+            fg=TEXT_SOFT,
+            troughcolor=SURFACE_ALT,
+            activebackground=PRIMARY,
+            highlightthickness=0,
+            bd=0,
+            width=px(12),
+            sliderrelief="flat",
+            sliderlength=px(14),
+            showvalue=False,
+            length=px(180),
+            command=self._on_quality_change,
+        )
+        self.scale_quality.set(self._quality)
+        self.scale_quality.pack(side="left", padx=(0, 6))
+        self.lbl_quality = tk.Label(
+            self.row_quality, text=f"{self._quality}", font=(UI_FONT, 9, "bold"),
+            bg=SURFACE, fg=PRIMARY_HOVER, width=4,
+        )
+        self.lbl_quality.pack(side="left")
+        Tooltip(
+            self.scale_quality,
+            "仅影响 JPG / WebP 等有损格式：数值越高越清晰、体积越大。\n默认 92，通常 80~95 足够。",
+            wraplength=320,
+        )
+
+        self.row_dpi = tk.Frame(self.frm_tuning, bg=SURFACE)
+        tk.Label(self.row_dpi, text="渲染 DPI", font=FONT_TINY, bg=SURFACE,
+                 fg=MUTED).pack(side="left", padx=(0, 8))
+        self.cmb_dpi = tb.Combobox(
+            self.row_dpi, state="readonly", font=FONT_SMALL, width=6,
+            values=["100", "150", "200", "300", "450"],
+        )
+        self.cmb_dpi.set(str(self._dpi))
+        self.cmb_dpi.pack(side="left", padx=(0, 10))
+        self.cmb_dpi.bind("<<ComboboxSelected>>", self._on_dpi_change)
+        tk.Label(
+            self.row_dpi, text="屏幕看 200，打印用 300", font=FONT_TINY,
+            bg=SURFACE, fg=MUTED,
+        ).pack(side="left")
+        Tooltip(
+            self.cmb_dpi,
+            "PDF / Office 转图片时的渲染精度。\n200 适合屏幕查看，300 适合打印。",
+            wraplength=320,
+        )
+        self.row_quality.pack_forget()
+        self.row_dpi.pack_forget()
+
+        toolbar = tk.Frame(box, bg=SURFACE)
+        toolbar.pack(fill="x", pady=(8, 0))
         self.btn_run = PillButton(
-            bottom,
+            toolbar,
             text="▶  开始转换",
             command=self.start_convert,
             width=160,
@@ -1156,7 +1381,7 @@ class App(TkinterDnD.Tk):
         self.btn_run.pack(side="left", padx=(0, 14))
         Tooltip(self.btn_run, "按当前的方向和输出位置开始转换；转换中不能重复点击")
         self.btn_cancel = PillButton(
-            bottom,
+            toolbar,
             text="取消",
             command=self.cancel_convert,
             width=78,
@@ -1173,7 +1398,7 @@ class App(TkinterDnD.Tk):
         self.btn_cancel.pack(side="left", padx=(0, 14))
         self.btn_cancel.set_enabled(False)
         Tooltip(self.btn_cancel, "停止后续文件；正在转换的那一个会先完成")
-        progress_wrap = tk.Frame(bottom, bg=SURFACE)
+        progress_wrap = tk.Frame(toolbar, bg=SURFACE)
         progress_wrap.pack(side="left", fill="x", expand=True)
         self.pbar = ttk.Progressbar(
             progress_wrap,
@@ -1196,8 +1421,8 @@ class App(TkinterDnD.Tk):
             fill=SURFACE,
             outline=BORDER,
             radius=18,
-            padding=14,
-            height=230,
+            padding=8,
+            height=40,
         )
         card.grid(row=0, column=0, sticky="nsew")
         box = card.inner
@@ -1262,6 +1487,25 @@ class App(TkinterDnD.Tk):
             radius=9,
         )
         self.scroll_btn.pack(side="right", padx=(0, 6))
+        self.log_toggle = PillButton(
+            head,
+            text="展开日志",
+            command=self._toggle_log,
+            width=86,
+            height=28,
+            fill=SURFACE_ALT,
+            hover=SURFACE_HOVER,
+            fg=PRIMARY_HOVER,
+            outer_bg=SURFACE,
+            font=FONT_TINY,
+            radius=9,
+        )
+        self.log_toggle.pack(side="right", padx=(0, 6))
+        Tooltip(
+            self.log_toggle,
+            "日志默认收起，给文件队列留出空间。\n也可以直接拖动上方分割条调整高度。",
+            wraplength=300,
+        )
 
         self.lbl_log_hint = tk.Label(
             head,
@@ -1450,6 +1694,50 @@ class App(TkinterDnD.Tk):
             self.frm_opt.grid(row=0, column=1, sticky="e", padx=(10, 0))
         else:
             self.frm_opt.grid_remove()
+        self._sync_tuning(conv)
+
+    # 支持输出质量与渲染 DPI 的转换方式
+    QUALITY_OPS = {"image_convert"}
+    DPI_OPS = {"pdf_to_image", "word_to_image", "excel_to_image", "ppt_to_image"}
+
+    def _sync_tuning(self, conv):
+        op = getattr(conv, "op", "")
+        show_quality = op in self.QUALITY_OPS
+        show_dpi = op in self.DPI_OPS
+        if show_quality:
+            self.row_quality.pack(fill="x")
+        else:
+            self.row_quality.pack_forget()
+        if show_dpi:
+            self.row_dpi.pack(fill="x")
+        else:
+            self.row_dpi.pack_forget()
+
+    def _on_quality_change(self, value):
+        try:
+            self._quality = max(10, min(100, int(float(value))))
+        except (TypeError, ValueError):
+            return
+        self.lbl_quality.config(text=str(self._quality))
+
+    def _on_dpi_change(self, _event=None):
+        try:
+            self._dpi = int(self.cmb_dpi.get())
+        except (TypeError, ValueError):
+            self._dpi = 200
+        settings_store.update_ui(dpi=self._dpi)
+
+    def _current_options(self, conv) -> dict:
+        """把界面上的质量 / DPI / 并发转成 C++ 核心认识的 options。"""
+        op = getattr(conv, "op", "")
+        options: dict = {}
+        if op in self.QUALITY_OPS:
+            options["quality"] = self._quality
+        if op in self.DPI_OPS:
+            options["dpi"] = self._dpi
+        if self._workers:
+            options["workers"] = self._workers
+        return options
 
     def _current_conv(self):
         src, dst = self._src(), self._dst()
@@ -1514,8 +1802,12 @@ class App(TkinterDnD.Tk):
         # 只追加新增行，避免大批量拖入时反复重建整个列表。
         start = len(self.files)
         self.files.extend(added_paths)
-        for i, path in enumerate(added_paths, start=start):
-            self._insert_tree_row(i, path)
+        if self._filter_text:
+            # 正在筛选时新增文件也要走一次过滤，避免出现不符合条件的行。
+            self._apply_filter()
+        else:
+            for i, path in enumerate(added_paths, start=start):
+                self._insert_tree_row(i, path)
         self._update_file_count()
         self._auto_detect_src()
         self._set_default_output()
@@ -1615,6 +1907,12 @@ class App(TkinterDnD.Tk):
 
     def clear_files(self):
         self.files.clear()
+        self._row_states.clear()
+        self._filter_text = ""
+        try:
+            self.search_entry.delete(0, "end")
+        except Exception:
+            pass
         self._refresh_list()
         self._log("已清空文件队列", "muted")
 
@@ -1634,15 +1932,58 @@ class App(TkinterDnD.Tk):
             size = _short_size(path.stat().st_size)
         except OSError:
             size = "—"
+        state, tag = self._row_states.get(index, ("等待中", ""))
         self.tree.insert(
             "",
             "end",
             iid=str(index),
-            values=(path.name, type_text, size, str(path.parent)),
+            values=(path.name, state, type_text, size, str(path.parent)),
+            tags=(tag,) if tag else ("",),
         )
+
+    def _set_row_state(self, index: int, text: str, tag: str = ""):
+        """更新队列中某一行的状态文字与颜色。"""
+        iid = str(index)
+        if not self.tree.exists(iid):
+            return
+        values = list(self.tree.item(iid, "values"))
+        if len(values) < 5:
+            return
+        values[1] = text
+        self.tree.item(iid, values=values, tags=(tag,) if tag else ())
+        self._row_states[index] = (text, tag)
+
+    def _schedule_filter(self):
+        """输入筛选词时防抖，避免每敲一个字符就重建整张表。"""
+        if self._filter_job:
+            try:
+                self.after_cancel(self._filter_job)
+            except Exception:
+                pass
+        self._filter_job = self.after(220, self._apply_filter)
+
+    def _apply_filter(self):
+        self._filter_job = None
+        try:
+            keyword = self.search_entry.get().strip().lower()
+        except Exception:
+            keyword = ""
+        self._filter_text = keyword
+        self.tree.delete(*self.tree.get_children())
+        shown = 0
+        for index, path in enumerate(self.files):
+            if keyword and keyword not in path.name.lower():
+                continue
+            self._insert_tree_row(index, path)
+            shown += 1
+        if keyword:
+            self.lbl_file_count.config(text=f"{shown} / {len(self.files)} 个文件")
+        else:
+            self.lbl_file_count.config(text=f"{len(self.files)} 个文件")
 
     def _refresh_list(self):
         self.tree.delete(*self.tree.get_children())
+        self._row_states.clear()
         for i, path in enumerate(self.files):
             self._insert_tree_row(i, path)
         self._update_file_count()
@@ -1651,8 +1992,23 @@ class App(TkinterDnD.Tk):
 
     def _update_file_count(self):
         count = len(self.files)
-        self.lbl_file_count.config(text=f"{count} 个文件")
+        if self._filter_text:
+            shown = len(self.tree.get_children())
+            self.lbl_file_count.config(text=f"{shown} / {count} 个文件")
+        else:
+            self.lbl_file_count.config(text=f"{count} 个文件")
         self._update_empty_state()
+        self._refresh_run_state()
+
+    def _refresh_run_state(self):
+        """队列为空时把「开始转换」按下去变灰，别让人点了才发现没文件。"""
+        button = getattr(self, "btn_run", None)
+        if button is None:
+            return
+        if self.worker and self.worker.is_alive():
+            button.set_enabled(False)
+            return
+        button.set_enabled(bool(self.files))
 
     def _update_empty_state(self):
         if self.files:
@@ -1711,11 +2067,12 @@ class App(TkinterDnD.Tk):
             self.ent_out.insert(0, d)
 
     # ------------------------------------------------------------- 转换执行
-    def start_convert(self):
+    def start_convert(self, only_files: list[Path] | None = None):
         if self.worker and self.worker.is_alive():
             messagebox.showwarning("请稍候", "当前批次还在运行中")
             return
-        if not self.files:
+        pool = list(only_files) if only_files is not None else list(self.files)
+        if not pool:
             messagebox.showinfo("提示", "请先添加输入文件")
             return
         if not self._src() or not self._dst():
@@ -1745,10 +2102,10 @@ class App(TkinterDnD.Tk):
 
         target = self.cmb_opt.get() if conv.accepts else ""
         files = [
-            f for f in self.files
+            f for f in pool
             if f.exists() and f.suffix.lower() in conv.extensions
         ]
-        skipped = len(self.files) - len(files)
+        skipped = len(pool) - len(files)
         if skipped:
             self._log(f"注意：{skipped} 个文件与所选方向的扩展名不符，已自动跳过", "err")
         if not files:
@@ -1758,148 +2115,105 @@ class App(TkinterDnD.Tk):
             )
             return
 
+        self._failed_files = []
         self._total, self._done = 0, 0
         self.pbar["value"] = 0
         self.lbl_progress_text.config(text=f"0 / {len(files)}")
         self.lbl_status.config(text="正在转换…", fg=PRIMARY)
-        self.lbl_hint.config(text=f"{conv.label} · {len(files)} 个任务")
+        self.lbl_hint.config(text=f"{conv.label} · {len(files)} 个任务", fg=MUTED, cursor="")
         self._set_header_status("● 转换中", PRIMARY)
         self.btn_run.set_enabled(False)
         self.btn_cancel.set_enabled(True)
+        self.remove_btn.set_enabled(False)
+        self.clear_btn.set_enabled(False)
         self._cancel.clear()
-        self._log(f"开始转换：{conv.label}（{len(files)} 个输入）→ {out}", "info")
+        self._batch_files = list(files)
+        self._prepare_rows(files)
+        try:
+            self.log_toggle._fg = PRIMARY_HOVER
+            self.log_toggle.set_text("收起日志" if self._log_expanded else "展开日志")
+        except Exception:
+            pass
+        options = self._current_options(conv)
+        detail = conv.label
+        if "quality" in options:
+            detail += f" · 质量 {options['quality']}"
+        if "dpi" in options:
+            detail += f" · {options['dpi']} DPI"
+        if options.get("workers"):
+            detail += f" · 并发 {options['workers']}"
+        self._log(f"开始转换：{detail}（{len(files)} 个输入）→ {out}", "info")
+        if options:
+            settings_store.update_ui(quality=self._quality)
+        self._remember_direction()
+        self._started_at = time.perf_counter()
 
         self.worker = threading.Thread(
             target=self._worker_run,
-            args=(conv, files, out, target),
+            args=(conv, files, out, target, options),
             daemon=True,
         )
         self.worker.start()
 
-    def _worker_run(self, conv, files, out, target):
-        ok = fail = 0
-        cancelled = False
+    def _prepare_rows(self, chosen: list[Path]):
+        """把本批要转换的行标成等待中，其余标成跳过。"""
+        selected = set(chosen)
+        for index, path in enumerate(self.files):
+            if path in selected:
+                self._set_row_state(index, "等待中", "running")
+            else:
+                self._set_row_state(index, "已跳过", "skip")
 
-        def run_one(f: Path) -> bool:
+    def _worker_run(self, conv, files, out, target, options):
+        # iid 始终是文件在 self.files 里的下标：重试失败项时本批只是子集，
+        # 直接用 batch 下标会和界面行错位。
+        position = {path: i for i, path in enumerate(self.files)}
+        index_of: dict[str, int] = {}
+        for path in files:
+            idx = position.get(path)
+            if idx is None:
+                continue
             try:
-                outs = conv.run([f], out, target)
-                for o in outs:
-                    self.msg_q.put(("ok", f"{f.name} → {o.name}"))
-                return True
-            except ConvertError as e:
-                self.msg_q.put(("err", str(e)))
-                return False
-            except Exception as e:
-                self.msg_q.put(("err", f"{f.name} 转换异常: {e}"))
-                return False
-            finally:
-                self.msg_q.put(("tick", None))
+                index_of[os.path.normcase(str(path.resolve()))] = idx
+            except OSError:
+                index_of[os.path.normcase(str(path))] = idx
 
+        def on_file(kind: str, message: str, path):
+            idx = None
+            if path is not None:
+                try:
+                    key = os.path.normcase(str(Path(path).resolve()))
+                except OSError:
+                    key = os.path.normcase(str(path))
+                idx = index_of.get(key)
+            if kind != "ok" and idx is not None and 0 <= idx < len(self.files):
+                self.msg_q.put(("failed_path", self.files[idx]))
+            self.msg_q.put(("file_ok" if kind == "ok" else "file_err", (idx, message)))
+
+        elapsed = 0.0
         try:
-            if conv.batch_report:
-                self.msg_q.put(("total", len(files)))
-
-                reported = 0
-
-                def report(kind, text):
-                    nonlocal ok, fail, reported
-                    if kind == "ok":
-                        ok += 1
-                    elif kind == "err":
-                        fail += 1
-                    else:
-                        return
-                    reported += 1
-                    self.msg_q.put((kind, text))
-                    self.msg_q.put(("tick", None))
-
-                batch_error = ""
-                try:
-                    conv.run(files, out, target, report=report)
-                except ConvertError as e:
-                    batch_error = str(e)
-                except Exception as e:
-                    batch_error = f"转换异常: {e}"
-                missing = len(files) - reported
-                if missing > 0:
-                    fail += missing
-                    self.msg_q.put(("err", batch_error or f"有 {missing} 个文件未产出结果"))
-                    for _ in range(missing):
-                        self.msg_q.put(("tick", None))
-            elif conv.per_file:
-                self.msg_q.put(("total", len(files)))
-                workers = int(getattr(conv, "workers", 1) or 1)
-                if conv.src == CAT_IMG:
-                    workers = max(workers, min(8, os.cpu_count() or 4))
-                workers = max(1, min(workers, len(files)))
-                if workers == 1:
-                    for f in files:
-                        if self._cancel.is_set():
-                            cancelled = True
-                            break
-                        if run_one(f):
-                            ok += 1
-                        else:
-                            fail += 1
-                else:
-                    # 有界并发：最多 workers 个任务同时运行，且只提前排队 2 倍数量，
-                    # 避免一次性提交几万个任务占满内存。
-                    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
-
-                    with ThreadPoolExecutor(
-                        max_workers=workers, thread_name_prefix="convert"
-                    ) as ex:
-                        futures = {}
-                        index = 0
-
-                        def submit_next():
-                            nonlocal index
-                            while (
-                                index < len(files)
-                                and len(futures) < workers * 2
-                                and not self._cancel.is_set()
-                            ):
-                                f = files[index]
-                                index += 1
-                                futures[ex.submit(run_one, f)] = f
-
-                        submit_next()
-                        while futures:
-                            done, _ = wait(futures, return_when=FIRST_COMPLETED)
-                            for fut in done:
-                                futures.pop(fut, None)
-                                try:
-                                    if fut.result():
-                                        ok += 1
-                                    else:
-                                        fail += 1
-                                except Exception as e:
-                                    fail += 1
-                                    self.msg_q.put(("err", f"转换异常: {e}"))
-                                    self.msg_q.put(("tick", None))
-                            if self._cancel.is_set():
-                                cancelled = True
-                            else:
-                                submit_next()
-            else:
-                self.msg_q.put(("total", 1))
-                try:
-                    outs = conv.run(files, out, target)
-                    for o in outs:
-                        self.msg_q.put(("ok", f"生成 {o.name}"))
-                    ok = 1
-                except ConvertError as e:
-                    fail = 1
-                    self.msg_q.put(("err", str(e)))
-                except Exception as e:
-                    fail = 1
-                    self.msg_q.put(("err", f"转换异常: {e}"))
-                self.msg_q.put(("tick", None))
-        finally:
-            if cancelled:
-                self.msg_q.put(("done", f"已取消：成功 {ok} 项，失败 {fail} 项"))
-            else:
-                self.msg_q.put(("done", f"完成：成功 {ok} 项，失败 {fail} 项"))
+            self.msg_q.put(("total", len(files)))
+            started = time.perf_counter()
+            result = conv.run_batch(
+                files,
+                out,
+                target,
+                options=options,
+                on_file=on_file,
+                cancel=self._cancel,
+            )
+            elapsed = time.perf_counter() - started
+            ok, fail = result.ok, result.failed
+            cancelled = result.cancelled
+            if fail and result.errors:
+                self.msg_q.put(("err", f"{fail} 个文件失败，首个原因：{result.errors[0]}"))
+            self.msg_q.put(("done", (ok, fail, cancelled, elapsed)))
+        except ConvertError as exc:
+            self.msg_q.put(("err", str(exc)))
+            self.msg_q.put(("done", (0, len(files), False, elapsed)))
+        except Exception as exc:  # noqa: BLE001 - 兜底，避免线程静默死掉
+            self.msg_q.put(("err", f"转换异常: {exc}"))
+            self.msg_q.put(("done", (0, len(files), False, elapsed)))
 
     def cancel_convert(self):
         """停止后续文件；正在处理的文件会先完成，避免产生半成品。"""
@@ -1908,44 +2222,123 @@ class App(TkinterDnD.Tk):
         self._cancel.set()
         self.btn_cancel.set_enabled(False)
         self.lbl_status.config(text="正在取消…", fg=WARNING)
-        self._log("已请求取消：当前文件结束后停止后续任务", "warn")
+        self._log("已请求取消：正在处理的文件会跑完，其余停止", "warn")
+
+    def _advance_progress(self):
+        self._done += 1
+        self.pbar["value"] = self._done
+        self.lbl_progress_text.config(text=f"{self._done} / {max(1, self._total)}")
+
+    def _finish_rows(self, cancelled: bool):
+        """把仍处于「等待中」的行标成取消 / 未完成。"""
+        text = "已取消" if cancelled else "未完成"
+        for iid in self.tree.get_children():
+            values = list(self.tree.item(iid, "values"))
+            if len(values) >= 5 and values[1] == "等待中":
+                values[1] = text
+                self.tree.item(iid, values=values, tags=("skip",))
 
     def _poll_queue(self):
         processed = 0
         try:
-            # 单次最多处理 400 条消息，避免几万条日志把界面卡住。
-            while processed < 400:
+            # 单次最多处理 600 条消息，避免几万条日志把界面卡住。
+            while processed < 600:
                 kind, text = self.msg_q.get_nowait()
                 processed += 1
                 if kind == "total":
-                    self._total = text
+                    self._total = int(text or 0)
                     self.pbar["maximum"] = max(1, self._total)
                     self.lbl_progress_text.config(text=f"0 / {self._total}")
                 elif kind == "tick":
-                    self._done += 1
-                    self.pbar["value"] = self._done
-                    self.lbl_progress_text.config(
-                        text=f"{self._done} / {max(1, self._total)}"
-                    )
+                    self._advance_progress()
+                elif kind == "failed_path":
+                    if text not in self._failed_files:
+                        self._failed_files.append(text)
+                elif kind == "file_ok":
+                    index, message = text
+                    if index is not None:
+                        self._set_row_state(index, "✔ 完成", "ok")
+                    self.lbl_status.config(text=message[:46], fg=SUCCESS)
+                    self._log(message, "ok")
+                    self._advance_progress()
+                elif kind == "file_err":
+                    index, message = text
+                    if index is not None:
+                        self._set_row_state(index, "✘ 失败", "err")
+                    self.lbl_status.config(text="有文件失败，见日志", fg=ERROR)
+                    self._log(message, "err")
+                    self._advance_progress()
+                    self._auto_expand_log()
                 elif kind == "ok":
                     self.lbl_status.config(text=text[:46], fg=SUCCESS)
                     self._log(text, "ok")
                 elif kind == "err":
                     self.lbl_status.config(text="有文件失败，见日志", fg=ERROR)
                     self._log(text, "err")
+                    self._auto_expand_log()
                 elif kind == "done":
-                    self.lbl_status.config(text=text, fg=SUCCESS if "失败 0" in text else WARNING)
-                    self.lbl_hint.config(text="任务结束，可继续添加下一批文件")
-                    self._log("—— " + text + " ——", "info")
-                    self._set_header_status("● 就绪", SUCCESS)
-                    self.btn_run.set_enabled(True)
-                    self.btn_cancel.set_enabled(False)
+                    self._on_batch_done(text)
         except queue.Empty:
             pass
         # 还有积压时快速继续；空闲时降低轮询频率，避免后台常驻占用 CPU。
         backlog = not self.msg_q.empty()
         busy = bool(self.worker and self.worker.is_alive())
         self.after(30 if backlog else (80 if busy else 300), self._poll_queue)
+
+    def _on_batch_done(self, payload):
+        if isinstance(payload, tuple) and len(payload) == 4:
+            ok, fail, cancelled, elapsed = payload
+        else:  # 兼容旧格式（纯文本）
+            ok, fail, cancelled, elapsed = 0, 0, False, 0.0
+            self.lbl_status.config(text=str(payload))
+        if not cancelled:
+            self._done = self._total
+        self.pbar["value"] = self._done
+        self.lbl_progress_text.config(text=f"{self._done} / {max(1, self._total)}")
+        self._finish_rows(cancelled)
+
+        if cancelled:
+            summary = f"已取消：成功 {ok} 项，失败 {fail} 项"
+            color = WARNING
+        elif fail == 0:
+            summary = f"完成：成功 {ok} 项，失败 0 项"
+            color = SUCCESS
+        else:
+            summary = f"完成：成功 {ok} 项，失败 {fail} 项"
+            color = WARNING
+        if elapsed:
+            summary += f" · 用时 {elapsed:.1f} 秒"
+        self.lbl_status.config(text=summary, fg=color)
+        if fail > 0 and self._failed_files and not cancelled:
+            self.lbl_hint.config(
+                text=f"{len(self._failed_files)} 个文件失败 · 点这里重试这些文件",
+                fg=PRIMARY_HOVER,
+                cursor="hand2",
+            )
+            self.lbl_hint.bind("<Button-1>", lambda _e: self._retry_failed())
+        else:
+            self.lbl_hint.config(text="任务结束，可继续添加下一批文件", fg=MUTED, cursor="")
+        self._log("—— " + summary + " ——", "info")
+        self._set_header_status("● 就绪" if not cancelled else "● 已取消",
+                                SUCCESS if not cancelled else WARNING)
+        self._refresh_run_state()
+        self.btn_cancel.set_enabled(False)
+        self.remove_btn.set_enabled(True)
+        self.clear_btn.set_enabled(True)
+        self._beep(cancelled or fail > 0)
+
+    def _beep(self, has_problem: bool):
+        """任务结束时给一个很轻的提示音（可在设置里关掉）。"""
+        if not self._prefs.get("beep", True):
+            return
+        try:
+            import winsound
+
+            winsound.MessageBeep(
+                winsound.MB_ICONHAND if has_problem else winsound.MB_ICONASTERISK
+            )
+        except Exception:
+            pass
 
     # ---------------------------------------------------------------- 杂项
     def _set_header_status(self, text: str, color: str):
@@ -1957,13 +2350,55 @@ class App(TkinterDnD.Tk):
         for tile, group in zip(self._quick_tiles, groups):
             tile.set_active(src in group)
 
+    def _auto_expand_log(self):
+        """出错时不再抢布局，只把日志按钮标红，提示去点开。"""
+        try:
+            self.log_toggle.set_text("查看失败")
+            self.log_toggle._fg = ERROR
+            self.log_toggle._draw()
+        except Exception:
+            pass
+
+    def _retry_failed(self):
+        """只重跑上一批失败的文件。"""
+        files = [f for f in self._failed_files if f.exists()]
+        if not files:
+            self.lbl_hint.config(text="失败的文件已不在原位置，无法重试", fg=MUTED, cursor="")
+            return
+        self._log(f"重试 {len(files)} 个失败文件", "info")
+        self.start_convert(only_files=files)
+
     def _init_sash(self):
         try:
             total = self.split.winfo_height()
             if total > px(420):
-                self.split.sash_place(0, 0, max(px(300), total - px(230)))
+                self.split.sash_place(0, 0, max(px(300), total - px(44)))
+                self._log_expanded = False
         except Exception:
             pass
+
+    def _toggle_log(self, expand: bool | None = None):
+        """日志区默认收起，需要时展开。"""
+        try:
+            total = self.split.winfo_height()
+        except Exception:
+            return
+        if expand is None:
+            expand = not getattr(self, "_log_expanded", False)
+        self.log_toggle._fg = PRIMARY_HOVER
+        if expand:
+            # 按比例展开，别把文件队列整个挤掉：日志最多占 45%。
+            self.split.sash_place(0, 0, max(px(260), int(total * 0.55)))
+            self.log_toggle.set_text("收起日志")
+        else:
+            self.split.sash_place(0, 0, max(px(260), total - px(44)))
+            self.log_toggle.set_text("展开日志")
+        self._log_expanded = expand
+        if expand:
+            try:
+                self.txt_log.see("end")
+            except Exception:
+                pass
 
     def _on_close(self):
         if self.worker and self.worker.is_alive():
@@ -1973,7 +2408,239 @@ class App(TkinterDnD.Tk):
             ):
                 return
             self._cancel.set()
+            self.worker.join(timeout=2.0)
+        try:
+            settings_store.update_ui(geometry=self.geometry())
+            self._remember_direction()
+        except Exception:
+            pass
         self.destroy()
+
+    def _restore_prefs(self):
+        """恢复上次的方向、质量与窗口大小。"""
+        prefs = self._prefs or {}
+        geo = prefs.get("geometry")
+        if isinstance(geo, str) and geo:
+            try:
+                self.geometry(self._clamp_geometry(geo))
+            except tk.TclError:
+                pass
+        src = prefs.get("last_src")
+        if src in self.cmb_src["values"]:
+            self.cmb_src.set(src)
+            self._on_src_change()
+            dst = prefs.get("last_dst")
+            if dst in self.cmb_dst["values"]:
+                self.cmb_dst.set(dst)
+                self._on_dst_change()
+                mode = prefs.get("last_mode")
+                if mode in list(self.cmb_mode["values"]):
+                    self.cmb_mode.set(mode)
+                    self._on_mode_change()
+
+    def _remember_direction(self):
+        settings_store.update_ui(
+            last_src=self._src(),
+            last_dst=self._dst(),
+            last_mode=self.cmb_mode.get() if self.cmb_mode["values"] else "",
+        )
+
+    # ---------------------------------------------------------------- 设置
+    def _show_settings(self):
+        win = tk.Toplevel(self)
+        win.title("设置 · 格式转换工具")
+        win.configure(bg=BG)
+        win.geometry(f"{px(700)}x{px(600)}")
+        win.resizable(False, False)
+        win.transient(self)
+        try:
+            win.iconphoto(True, self._window_icon)
+        except Exception:
+            pass
+
+        wrap = tk.Frame(win, bg=BG, padx=22, pady=18)
+        wrap.pack(fill="both", expand=True)
+        tk.Label(wrap, text="设置", font=(UI_FONT, 16, "bold"), bg=BG, fg=TEXT).pack(anchor="w")
+        tk.Label(
+            wrap,
+            text="修改后立即写入程序旁边的 settings.json，下一次转换生效。",
+            font=FONT_SMALL, bg=BG, fg=MUTED,
+        ).pack(anchor="w", pady=(4, 12))
+
+        # 1) 引擎
+        card1 = tk.Frame(wrap, bg=SURFACE, padx=14, pady=12)
+        card1.pack(fill="x", pady=(0, 10))
+        tk.Label(card1, text="转换引擎", font=FONT_SECTION, bg=SURFACE, fg=TEXT).pack(anchor="w")
+        current = settings_store.load().get("engine", "auto")
+        var_engine = tk.StringVar(value=current if current in ("auto", "cpp", "python") else "auto")
+        for value, label, hint in (
+            ("auto", "自动（推荐）", "有 C++ 核心就用核心，没有就回退 Python"),
+            ("cpp", "只用 C++ 核心", "找不到核心时直接报错，便于排查"),
+            ("python", "只用 Python 回退", "兼容模式，速度较慢、部分格式不可用"),
+        ):
+            row = tk.Frame(card1, bg=SURFACE)
+            row.pack(fill="x", pady=(6, 0))
+            tk.Radiobutton(
+                row, text=label, variable=var_engine, value=value,
+                bg=SURFACE, fg=TEXT_SOFT, selectcolor=SURFACE_ALT,
+                activebackground=SURFACE, activeforeground=TEXT,
+                font=(UI_FONT, 10), anchor="w", relief="flat",
+                highlightthickness=0, bd=0,
+            ).pack(side="left")
+            tk.Label(row, text=hint, font=FONT_TINY, bg=SURFACE, fg=MUTED).pack(
+                side="left", padx=(10, 0)
+            )
+        cli = self._engine.get("cli") or "未找到 fccli.exe"
+        core = self._engine.get("core_version") or ""
+        tk.Label(
+            card1,
+            text=f"核心：{cli}" + (f"  ·  {core}" if core else ""),
+            font=FONT_TINY, bg=SURFACE, fg=MUTED, justify="left", wraplength=px(580),
+        ).pack(anchor="w", pady=(8, 0))
+
+        # 2) 外部程序
+        card2 = tk.Frame(wrap, bg=SURFACE, padx=14, pady=12)
+        card2.pack(fill="x", pady=(0, 10))
+        tk.Label(card2, text="外部程序", font=FONT_SECTION, bg=SURFACE, fg=TEXT).pack(anchor="w")
+        tk.Label(
+            card2, text="留空则自动使用程序旁边的 tools/；换机或自定义安装时再填绝对路径。",
+            font=FONT_TINY, bg=SURFACE, fg=MUTED,
+        ).pack(anchor="w", pady=(2, 8))
+
+        data = settings_store.load()
+        ent_ffmpeg = self._path_row(card2, "FFmpeg", data.get("ffmpeg", ""), "ffmpeg.exe")
+        ent_soffice = self._path_row(card2, "LibreOffice", data.get("soffice", ""), "soffice.exe")
+
+        # 3) 其他
+        card3 = tk.Frame(wrap, bg=SURFACE, padx=14, pady=12)
+        card3.pack(fill="x")
+        tk.Label(card3, text="其他", font=FONT_SECTION, bg=SURFACE, fg=TEXT).pack(anchor="w")
+        var_beep = tk.BooleanVar(value=bool(self._prefs.get("beep", True)))
+        tk.Checkbutton(
+            card3, text="任务结束时播放提示音", variable=var_beep,
+            bg=SURFACE, fg=TEXT_SOFT, selectcolor=SURFACE_ALT,
+            activebackground=SURFACE, activeforeground=TEXT,
+            font=(UI_FONT, 10), anchor="w", relief="flat", highlightthickness=0, bd=0,
+        ).pack(anchor="w", pady=(6, 0))
+
+        word_row = tk.Frame(card3, bg=SURFACE)
+        word_row.pack(fill="x", pady=(8, 0))
+        tk.Label(word_row, text="Word 转文本", font=FONT_TINY, bg=SURFACE, fg=MUTED,
+                 width=11, anchor="w").pack(side="left")
+        word_modes = ["内置提取（快，推荐）", "LibreOffice（高保真）"]
+        cmb_word = tb.Combobox(word_row, state="readonly", font=FONT_SMALL, width=18,
+                               values=word_modes)
+        saved_word = data.get("word_text_engine", "builtin")
+        cmb_word.set(word_modes[1] if saved_word == "libreoffice" else word_modes[0])
+        cmb_word.pack(side="left", padx=(0, 8))
+        tk.Label(
+            word_row,
+            text=".docx 约 0.1 秒；.doc/.rtf/.odt 才需要 LibreOffice",
+            font=FONT_TINY, bg=SURFACE, fg=MUTED,
+        ).pack(side="left")
+        worker_row = tk.Frame(card3, bg=SURFACE)
+        worker_row.pack(fill="x", pady=(8, 0))
+        tk.Label(worker_row, text="同时处理", font=FONT_TINY, bg=SURFACE, fg=MUTED,
+                 width=11, anchor="w").pack(side="left")
+        worker_modes = ["自动（推荐）", "2 个", "4 个", "6 个", "8 个", "12 个", "16 个"]
+        worker_values = [0, 2, 4, 6, 8, 12, 16]
+        cmb_workers = tb.Combobox(worker_row, state="readonly", font=FONT_SMALL, width=12,
+                                  values=worker_modes)
+        try:
+            cmb_workers.current(worker_values.index(self._workers))
+        except ValueError:
+            cmb_workers.current(0)
+        cmb_workers.pack(side="left", padx=(0, 8))
+        tk.Label(
+            worker_row,
+            text="默认按 CPU 核数自动决定",
+            font=FONT_TINY, bg=SURFACE, fg=MUTED,
+        ).pack(side="left")
+
+        tk.Label(
+            card3,
+            text="提示：转换过程中可以随时点「取消」，正在处理的文件会跑完再停，不会留下半成品。",
+            font=FONT_TINY, bg=SURFACE, fg=MUTED, justify="left", wraplength=px(580),
+        ).pack(anchor="w", pady=(6, 0))
+
+        btn_row = tk.Frame(wrap, bg=BG)
+        btn_row.pack(fill="x", pady=(14, 0))
+
+        def open_settings_file():
+            try:
+                os.startfile(str(settings_store.settings_path()))
+            except OSError as exc:
+                messagebox.showerror("无法打开", str(exc))
+
+        PillButton(
+            btn_row, text="打开配置文件", command=open_settings_file, width=120, height=36,
+            fill=SURFACE_ALT, hover=SURFACE_HOVER, fg=TEXT_SOFT, outer_bg=BG,
+        ).pack(side="left")
+
+        def save():
+            payload = settings_store.load()
+            payload["engine"] = var_engine.get()
+            payload["ffmpeg"] = ent_ffmpeg.get().strip()
+            payload["soffice"] = ent_soffice.get().strip()
+            payload["word_text_engine"] = (
+                "libreoffice" if cmb_word.get() == word_modes[1] else "builtin"
+            )
+            if not settings_store.save(payload):
+                messagebox.showerror("保存失败", "无法写入 settings.json，请检查程序目录权限。")
+                return
+            settings_store.update_ui(beep=bool(var_beep.get()))
+            worker_values = [0, 2, 4, 6, 8, 12, 16]
+            index = cmb_workers.current()
+            selected = worker_values[index] if 0 <= index < len(worker_values) else 0
+            settings_store.update_ui(workers=selected)
+            self._workers = selected
+            self._prefs = settings_store.ui_prefs()
+            self._engine = engine_info()
+            self.engine_btn.set_text(self._engine_badge_text())
+            self.engine_btn._fg = PRIMARY if self._engine.get("available") else WARNING
+            self.engine_btn._draw()
+            self._log(
+                f"设置已保存：引擎={payload['engine']}，"
+                f"核心={'可用' if self._engine.get('available') else '不可用'}",
+                "info",
+            )
+            win.destroy()
+
+        PillButton(
+            btn_row, text="取消", command=win.destroy, width=86, height=36,
+            fill=SURFACE_ALT, hover=SURFACE_HOVER, fg=TEXT_SOFT, outer_bg=BG,
+        ).pack(side="right")
+        PillButton(
+            btn_row, text="保存", command=save, width=96, height=36,
+            fill=PRIMARY, hover=PRIMARY_HOVER, fg="#FFFFFF", outer_bg=BG,
+        ).pack(side="right", padx=(0, 8))
+        win.bind("<Escape>", lambda _e: win.destroy())
+
+    def _path_row(self, parent, label: str, value: str, exe_name: str):
+        row = tk.Frame(parent, bg=SURFACE)
+        row.pack(fill="x", pady=(2, 0))
+        tk.Label(row, text=label, font=FONT_TINY, bg=SURFACE, fg=MUTED, width=11,
+                 anchor="w").pack(side="left")
+        entry = tb.Entry(row, font=FONT_SMALL)
+        entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        if value:
+            entry.insert(0, str(value))
+
+        def browse():
+            chosen = filedialog.askopenfilename(
+                title=f"选择 {exe_name}",
+                filetypes=[(exe_name, exe_name), ("所有文件", "*.*")],
+            )
+            if chosen:
+                entry.delete(0, "end")
+                entry.insert(0, chosen)
+
+        PillButton(
+            row, text="浏览", command=browse, width=64, height=30,
+            fill=SURFACE_ALT, hover=SURFACE_HOVER, fg=TEXT_SOFT, outer_bg=SURFACE,
+            font=FONT_TINY, radius=8,
+        ).pack(side="right")
+        return entry
 
     def _show_help(self):
         win = tk.Toplevel(self)
@@ -2047,13 +2714,24 @@ class App(TkinterDnD.Tk):
         item("调大窗口：", "拖动主界面与日志之间的横向分割条即可拉高日志区，默认比旧版本高很多。")
         item("保留现场：", "可关闭「自动滚动」向上翻看历史；点「复制全部」可把完整日志发给其他人排查。")
 
-        h("5. 常见问题")
+        h("5. 队列状态与取消")
+        item("状态列：", "每个文件一行状态：等待中 → 完成（绿色，显示输出名）/ 失败（红色，显示原因）/ 已取消。转换中可以继续拖入新文件。")
+        item("取消：", "点「取消」后，正在处理的那几个文件会跑完，其余立即停止；不会留下半成品，已完成的输出保留。")
+        item("质量 / DPI：", "图片互转时出现「输出质量」滑杆（10–100）；PDF / Office 转图片时出现「渲染 DPI」，200 适合屏幕查看，300 适合打印。")
+        item("记忆：", "上次选择的格式方向、质量、DPI 和窗口大小会自动记住，下次打开直接接着用。")
+
+        h("6. 设置里的三件事")
+        item("转换引擎：", "右上角徽标显示当前用的是 C++ 核心还是 Python 回退，点它打开设置。默认「自动」，有核心就用核心。")
+        item("外部程序：", "FFmpeg 与 LibreOffice 默认用程序旁边的 tools/；换机、便携盘或自定义安装时可手动指定 exe 路径。")
+        item("提示音：", "任务结束的轻提示音可以在这里关掉。")
+
+        h("7. 常见问题")
         item("扫描件 PDF：", "没有文字层，转 Word / Excel / 文本会得到空内容或图片版，这是源文件限制。")
         item("Office 转换慢：", "依赖包内 LibreOffice，首次启动会多等几秒，后续批量会明显加快。")
         item("PDF 转 PPT：", "导出为整页图片版，文字不可编辑；需要可编辑文字请先转 Word。")
         item("转换失败：", "日志会保留完整错误原因，优先看红色行末尾的异常信息。")
 
-        h("6. 快捷键")
+        h("8. 快捷键")
         item("Ctrl+O：", "添加文件。")
         item("Ctrl+L：", "清空运行日志。")
         txt.insert("end", "\n提示：鼠标悬停在分类卡片和按钮上，会显示对应功能的简短说明。", "m")

@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Format Converter</string>
+    <string name="app_subtitle">Offline · images / PDF / structured data</string>
+    <string name="conversion">Convert</string>
+    <string name="target">Output format</string>
+    <string name="quality">Quality</string>
+    <string name="pdf_dpi">PDF render DPI</string>
+    <string name="pick_files">Choose input files</string>
+    <string name="clear_files">Clear</string>
+    <string name="self_test">Self-test</string>
+    <string name="start">Convert</string>
+    <string name="cancel">Cancel</string>
+    <string name="share">Share</string>
+    <string name="no_files">No files selected yet</string>
+    <string name="queue_title">Queue</string>
+    <string name="log_toggle">Log</string>
+    <string name="output_dir">Output folder: </string>
+    <string name="save_to_downloads">Save to gallery / Downloads and share</string>
+    <string name="status_ready">Ready</string>
+    <string name="version_placeholder">v1.6.0</string>
+    <string name="queue_empty_hint">The queue is empty\nTap “Choose input files” above to add files</string>
+    <string name="crash_found_hint">Last crash was recorded — see the About page</string>
+
+    <string name="log_collapse">Collapse</string>
+    <string name="version_core">Core %1$s</string>
+    <string name="queue_count_empty">empty</string>
+    <string name="queue_count_n">%1$d files</string>
+    <string name="status_converting">Converting %1$d/%2$d</string>
+    <string name="status_self_test">Running self-test…</string>
+    <string name="status_cancelling">Cancelling…</string>
+    <string name="status_reading">Reading files…</string>
+    <string name="item_ready">Ready</string>
+    <string name="item_waiting">Waiting</string>
+    <string name="item_done">Done</string>
+    <string name="item_done_to">Done → %1$s</string>
+    <string name="item_failed">Failed: %1$s</string>
+    <string name="item_mismatch">⚠️ Does not match this conversion</string>
+    <string name="toast_pick_first">Choose input files first</string>
+    <string name="toast_no_op">No conversion available</string>
+    <string name="toast_pick_target">Choose an output format</string>
+    <string name="toast_busy">Busy right now</string>
+    <string name="toast_busy_clear">Converting — try again later</string>
+    <string name="toast_busy_queue">Converting — adjust the queue later</string>
+    <string name="toast_no_results">Nothing to share yet</string>
+    <string name="toast_need_storage">Storage permission is required to save into Downloads</string>
+    <string name="log_cancel_requested">Cancellation requested: current file will finish first</string>
+    <string name="share_chooser">Share results</string>
+
+    <string name="notify_channel">Conversion progress</string>
+    <string name="notify_channel_desc">Shows progress while a conversion is running</string>
+    <string name="notify_preparing">Preparing…</string>
+    <string name="notify_converting">Converting</string>
+    <string name="notify_progress">Converting %1$d/%2$d</string>
+    <string name="notify_transcoding">Transcoding %1$d%%</string>
+
+    <string name="about_title">About</string>
+    <string name="about_back">Close</string>
+    <string name="about_section_version">Version</string>
+    <string name="about_app_version">App version: %1$s</string>
+    <string name="about_core_version">Core version: %1$s</string>
+    <string name="about_target_sdk">targetSdk: %1$d</string>
+    <string name="about_section_support">Capabilities</string>
+    <string name="about_support_body">Images: PNG / JPEG / WebP / BMP / GIF / ICO / TGA / PPM conversion; HEIC / HEIF / AVIF / TIFF as input.\nPDF: to image / text / Word / Excel / PPT; merge, split, rotate, compress.\nData: JSON / YAML / XML / XLSX / CSV conversion.\nOffice and media conversion need external engines and are not available on phones yet.</string>
+    <string name="about_section_licenses">Open source</string>
+    <string name="about_licenses_body">PDFium (BSD-3-Clause) · libwebp (BSD-3-Clause) · stb (MIT / public domain) · miniz (MIT) · tinyxml2 (zlib) · yaml-cpp (MIT) · nlohmann-json (MIT) · gif.h (MIT) · Material Components (Apache-2.0) · AndroidX (Apache-2.0)</string>
+    <string name="about_section_device">Device</string>
+    <string name="about_device_line">%1$s %2$s · Android %3$s · %4$s</string>
+    <string name="about_section_crash">Crash log</string>
+    <string name="about_crash_none">No crash recorded</string>
+    <string name="about_export">Export diagnostics</string>
+    <string name="about_clear_crash">Clear</string>
+</resources>

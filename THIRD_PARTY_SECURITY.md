@@ -2,7 +2,17 @@
 
 [English](THIRD_PARTY_SECURITY.md) | [简体中文](THIRD_PARTY_SECURITY.zh-CN.md)
 
-This version adds exactly one external binary: FFmpeg. Every other new capability uses Python packages distributed through PyPI.
+This version adds the C++ core dependencies (PDFium, libwebp, yaml-cpp and small single-file libraries) on top of the existing FFmpeg / LibreOffice external tools.
+
+## C++ core dependencies
+
+- **PDFium** (BSD): prebuilt packages from https://github.com/bblanchon/pdfium-binaries
+  (`pdfium-win-x64.tgz` on Windows, `pdfium-android-*.tgz` on Android). They are large and
+  are not committed; download them before building (see `cpp/README.zh-CN.md`).
+- **libwebp 1.5.0** (BSD), **yaml-cpp 0.8.0** (MIT): vendored under `cpp/third_party/`.
+- **stb_image / stb_image_write** (public domain / MIT), **miniz 3.0.2** (MIT),
+  **tinyxml2** (zlib), **gif.h** (public domain): vendored single-file dependencies.
+- Everything is compiled locally; PDFium is only loaded at runtime as a DLL/SO.
 
 ## FFmpeg
 

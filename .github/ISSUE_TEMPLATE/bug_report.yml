@@ -1,0 +1,91 @@
+name: Bug 报告
+description: 转换失败、界面异常、卡住或闪退
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请尽量填完整，尤其是**运行日志**和**输入文件格式**，这两项能定位绝大部分问题。
+
+  - type: input
+    id: version
+    attributes:
+      label: 程序版本
+      description: 窗口标题栏显示的版本号
+      placeholder: 格式转换工具 v1.7.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: channel
+    attributes:
+      label: 运行方式
+      options:
+        - 发布版 exe（双击运行）
+        - 源码模式（python main.py）
+        - Android APK
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: 系统与屏幕缩放
+      placeholder: Windows 11 24H2 / 26200，显示缩放 150%
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: 涉及的转换类别
+      multiple: true
+      options:
+        - 图片
+        - PDF
+        - Word
+        - Excel
+        - PPT
+        - 文本
+        - 音频
+        - 视频
+        - 数据（JSON / YAML / XML / CSV）
+        - 界面本身
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 你做了哪几步？拖入了什么文件？
+      placeholder: |
+        1. 把一组 HEIC 照片拖进窗口
+        2. 选「图片 → 图片 / 图片格式互转」，目标格式 webp
+        3. 点开始转换
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果 / 实际结果
+      placeholder: 期望生成 webp；实际第 3 个文件失败，提示……
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: 运行日志
+      description: 点界面底部「展开日志 → 复制全部」，把内容粘到这里
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 其它信息
+      description: 文件名里是否有中文/空格、文件大小、是否远程桌面、是否装了 Office 等
+    validations:
+      required: false

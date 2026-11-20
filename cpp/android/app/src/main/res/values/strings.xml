@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">格式转换工具</string>
+    <string name="app_subtitle">离线运行 · 图片 / PDF / 结构化数据</string>
+    <string name="conversion">转换方式</string>
+    <string name="target">目标格式</string>
+    <string name="quality">质量</string>
+    <string name="pdf_dpi">PDF 渲染 DPI</string>
+    <string name="pick_files">选择输入文件</string>
+    <string name="clear_files">清空</string>
+    <string name="self_test">自检</string>
+    <string name="start">开始转换</string>
+    <string name="cancel">取消</string>
+    <string name="share">分享</string>
+    <string name="no_files">还没有选择文件</string>
+    <string name="queue_title">文件队列</string>
+    <string name="log_toggle">日志</string>
+    <string name="output_dir">输出目录：</string>
+    <string name="save_to_downloads">结果另存到相册 / 下载目录并可分享</string>
+    <string name="status_ready">就绪</string>
+    <string name="version_placeholder">v1.6.0</string>
+    <string name="queue_empty_hint">队列是空的\n点上面的「选择输入文件」添加要转换的文件</string>
+    <string name="crash_found_hint">检测到上次异常退出，日志已保存在「关于」页</string>
+
+    <!-- 状态与提示 -->
+    <string name="log_collapse">收起</string>
+    <string name="version_core">核心 %1$s</string>
+    <string name="queue_count_empty">空</string>
+    <string name="queue_count_n">%1$d 个文件</string>
+    <string name="status_converting">转换中 %1$d/%2$d</string>
+    <string name="status_self_test">自检中…</string>
+    <string name="status_cancelling">正在取消…</string>
+    <string name="status_reading">正在读取文件…</string>
+    <string name="item_ready">已就绪</string>
+    <string name="item_waiting">等待中</string>
+    <string name="item_done">完成</string>
+    <string name="item_done_to">完成 → %1$s</string>
+    <string name="item_failed">失败：%1$s</string>
+    <string name="item_mismatch">⚠️ 与当前转换方式不符</string>
+    <string name="toast_pick_first">请先选择输入文件</string>
+    <string name="toast_no_op">没有可用的转换方式</string>
+    <string name="toast_pick_target">请选择目标格式</string>
+    <string name="toast_busy">正在处理中</string>
+    <string name="toast_busy_clear">正在转换，稍后再清空</string>
+    <string name="toast_busy_queue">转换进行中，稍后再调整队列</string>
+    <string name="toast_no_results">还没有可分享的结果</string>
+    <string name="toast_need_storage">保存到下载目录需要存储权限</string>
+    <string name="log_cancel_requested">已请求取消：当前文件完成后停止</string>
+    <string name="share_chooser">分享转换结果</string>
+
+    <!-- 通知 -->
+    <string name="notify_channel">转换进度</string>
+    <string name="notify_channel_desc">转换任务进行时显示进度</string>
+    <string name="notify_preparing">准备中…</string>
+    <string name="notify_converting">正在转换</string>
+    <string name="notify_progress">正在转换 %1$d/%2$d</string>
+    <string name="notify_transcoding">转码中 %1$d%%</string>
+
+    <!-- 关于页 -->
+    <string name="about_title">关于</string>
+    <string name="about_back">关闭</string>
+    <string name="about_section_version">版本</string>
+    <string name="about_app_version">应用版本：%1$s</string>
+    <string name="about_core_version">核心版本：%1$s</string>
+    <string name="about_target_sdk">targetSdk：%1$d</string>
+    <string name="about_section_support">支持的能力</string>
+    <string name="about_support_body">图片：PNG / JPEG / WebP / BMP / GIF / ICO / TGA / PPM 互转；HEIC / HEIF / AVIF / TIFF 可作为输入。\nPDF：转图片 / 文字 / Word / Excel / PPT，合并 / 拆分 / 旋转 / 压缩。\n数据：JSON / YAML / XML / XLSX / CSV 互转。\nOffice 与音视频转换依赖外部引擎，手机端暂不提供。</string>
+    <string name="about_section_licenses">开源组件</string>
+    <string name="about_licenses_body">PDFium（BSD-3-Clause）· libwebp（BSD-3-Clause）· stb（MIT / 公有领域）· miniz（MIT）· tinyxml2（zlib）· yaml-cpp（MIT）· nlohmann-json（MIT）· gif.h（MIT）· Material Components（Apache-2.0）· AndroidX（Apache-2.0）</string>
+    <string name="about_section_device">设备</string>
+    <string name="about_device_line">%1$s %2$s · Android %3$s · %4$s</string>
+    <string name="about_section_crash">崩溃日志</string>
+    <string name="about_crash_none">没有崩溃记录</string>
+    <string name="about_export">导出诊断信息</string>
+    <string name="about_clear_crash">清除</string>
+</resources>

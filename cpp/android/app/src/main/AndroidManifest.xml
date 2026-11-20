@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Android 8/9 把结果复制到公共下载目录才需要；Android 10+ 走 MediaStore，不需要权限。 -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <!-- 转换期间的前台服务：保证退到后台不被回收，并在通知栏显示进度。 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:name=".FmtApplication"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- 从相册/文件管理器「分享到」本应用 -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="application/json" />
+                <data android:mimeType="application/xml" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+                <data android:mimeType="text/csv" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+
+            <!-- 用本应用打开图片 / PDF -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".AboutActivity"
+            android:exported="false"
+            android:label="@string/about_title"
+            android:parentActivityName=".MainActivity" />
+
+        <service
+            android:name=".ConversionService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+    </application>
+
+</manifest>

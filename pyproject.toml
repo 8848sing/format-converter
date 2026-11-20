@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11,<3.13"
 license = { text = "MIT" }
 authors = [{ name = "8848sing" }]
-keywords = ["windows", "converter", "pdf", "image", "ffmpeg", "libreoffice", "tkinter"]
+keywords = ["windows", "android", "converter", "pdf", "image", "cpp", "cmake", "ffmpeg", "libreoffice", "tkinter"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Win32 (MS Windows)",
@@ -22,13 +22,19 @@ classifiers = [
     "Topic :: Utilities",
 ]
 
+[project.urls]
+Homepage = "https://github.com/8848sing/format-converter"
+Issues = "https://github.com/8848sing/format-converter/issues"
+Releases = "https://github.com/8848sing/format-converter/releases"
+Changelog = "https://github.com/8848sing/format-converter/blob/main/README.zh-CN.md#更新日志"
+
 [tool.setuptools.dynamic]
 version = { attr = "version.__version__" }
 
 [tool.ruff]
 line-length = 120
 target-version = "py311"
-exclude = ["build", "dist", "tools"]
+exclude = ["build", "dist", "tools", "cpp/build", "cpp/third_party", "cpp/android/.gradle", "cpp/android/app/build"]
 
 [tool.ruff.lint]
 select = ["E9", "F"]

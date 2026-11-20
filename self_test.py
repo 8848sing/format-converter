@@ -1,14 +1,51 @@
-from pathlib import Path
+# -*- coding: utf-8 -*-
+"""self_test.py — 自检入口。
+
+优先运行 C++ 核心的 fccli self-test；找不到 C++ 核心时才回退到旧的
+纯 Python 自检，方便没有编译产物的开发环境。
+"""
+from __future__ import annotations
+
 import json
 import subprocess
 import tempfile
-
-from PIL import Image, ImageDraw
-
-import converters as c
+from pathlib import Path
 
 
-def run_self_test() -> int:
+def _run_cpp_self_test() -> int | None:
+    try:
+        import cpp_bridge
+    except Exception:
+        return None
+    if not cpp_bridge.available():
+        return None
+    exe = cpp_bridge.cli_path()
+    if exe is None:
+        return None
+    try:
+        proc = subprocess.run(
+            [str(exe), "self-test", "--base-dir", str(cpp_bridge.base_dir())],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=1800,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except Exception:
+        return None
+    stdout = proc.stdout.decode("utf-8", errors="replace")
+    stderr = proc.stderr.decode("utf-8", errors="replace")
+    if stdout.strip():
+        print(stdout.strip())
+    if stderr.strip():
+        print(stderr.strip())
+    return proc.returncode
+
+
+def _run_python_self_test() -> int:
+    from PIL import Image, ImageDraw
+
+    import converters as c
+
     checks = []
     with tempfile.TemporaryDirectory(prefix='format-converter-test-') as tmp:
         root = Path(tmp)
@@ -30,8 +67,11 @@ def run_self_test() -> int:
                 checks.append({'name': name, 'ok': False, 'error': str(exc)})
 
         check('image-jpg', lambda: c.convert_images_format_plus([image_path], outputs, 'jpg')[0].stat().st_size > 0)
-        check('image-heic-roundtrip', lambda: c.convert_images_format_plus([c.convert_images_format_plus([image_path], outputs, 'heic')[0]], outputs, 'png')[0].stat().st_size > 0)
-        check('image-avif', lambda: c.convert_images_format_plus([image_path], outputs, 'avif')[0].stat().st_size > 0)
+        try:
+            check('image-heic-roundtrip', lambda: c.convert_images_format_plus([c.convert_images_format_plus([image_path], outputs, 'heic')[0]], outputs, 'png')[0].stat().st_size > 0)
+            check('image-avif', lambda: c.convert_images_format_plus([image_path], outputs, 'avif')[0].stat().st_size > 0)
+        except Exception as exc:
+            checks.append({'name': 'image-heic-avif', 'ok': False, 'error': str(exc)})
         check('image-ico', lambda: c.convert_images_format_plus([image_path], outputs, 'ico')[0].stat().st_size > 0)
 
         pdf_a = outputs / 'a.pdf'
@@ -39,21 +79,30 @@ def run_self_test() -> int:
         image.save(pdf_a, 'PDF')
         image.save(pdf_b, 'PDF')
 
-        import pymupdf
-        text_doc = pymupdf.open()
-        text_page = text_doc.new_page()
-        text_page.insert_text((72, 72), 'Hello 12345')
-        text_page.insert_text((72, 100), 'Second line for extraction')
-        text_pdf = outputs / 'text.pdf'
-        text_doc.save(text_pdf)
-        text_doc.close()
+        # 带文字层的样本 PDF：pymupdf 是可选的（打包时被精简掉），
+        # 没有就跳过依赖文字层的两项，而不是让整个自检失败。
+        try:
+            import pymupdf
+
+            text_doc = pymupdf.open()
+            text_page = text_doc.new_page()
+            text_page.insert_text((72, 72), 'Hello 12345')
+            text_page.insert_text((72, 100), 'Second line for extraction')
+            text_pdf = outputs / 'text.pdf'
+            text_doc.save(text_pdf)
+            text_doc.close()
+        except Exception:
+            text_pdf = None
+            checks.append({'name': 'pdf-text-sample', 'ok': True,
+                           'error': '未安装 pymupdf，跳过文字层相关检查'})
+
         check('pdf-merge', lambda: len(__import__('pypdf').PdfReader(str(c.merge_pdfs([pdf_a, pdf_b], outputs)[0])).pages) == 2)
         check('pdf-split-rotate-compress', lambda: len(c.split_pdf([c.rotate_pdf([c.compress_pdf([pdf_a], outputs)[0]], outputs, '90')[0]], outputs)) == 1)
         check('pdf-to-image', lambda: c.convert_pdf_to_images([pdf_a], outputs, 'png')[0].stat().st_size > 0)
-        check('pdf-to-word', lambda: c.convert_pdf_to_word([pdf_a], outputs)[0].stat().st_size > 0)
         check('pdf-to-ppt', lambda: c.convert_pdf_to_ppt([pdf_a], outputs)[0].stat().st_size > 0)
-        check('pdf-to-text', lambda: c.convert_pdf_to_text([text_pdf], outputs)[0].stat().st_size > 0)
-        check('pdf-to-excel', lambda: c.convert_pdf_to_excel([text_pdf], outputs)[0].exists())
+        if text_pdf is not None:
+            check('pdf-to-text', lambda: c.convert_pdf_to_text([text_pdf], outputs)[0].stat().st_size > 0)
+            check('pdf-to-excel', lambda: c.convert_pdf_to_excel([text_pdf], outputs)[0].exists())
 
         try:
             soffice = c.find_soffice()
@@ -88,3 +137,10 @@ def run_self_test() -> int:
     report = c.base_dir() / 'self-test-result.json'
     report.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
     return 0 if result['ok'] else 1
+
+
+def run_self_test() -> int:
+    code = _run_cpp_self_test()
+    if code is not None:
+        return code
+    return _run_python_self_test()

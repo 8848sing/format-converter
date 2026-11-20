@@ -2,7 +2,20 @@
 
 [English](THIRD_PARTY_SECURITY.md) | [简体中文](THIRD_PARTY_SECURITY.zh-CN.md)
 
-本版只新增了一个外部二进制工具：FFmpeg。其余新增功能均使用经过 PyPI 分发的 Python 库。
+本版新增了 C++ 核心依赖（PDFium、libwebp、yaml-cpp 等）以及原有的 FFmpeg / LibreOffice 外部工具。
+
+## C++ 核心依赖
+
+- **PDFium**（BSD）：预编译包来自 https://github.com/bblanchon/pdfium-binaries ，
+  Windows 为 `pdfium-win-x64.tgz`，Android 为 `pdfium-android-*.tgz`。体积较大，
+  不进入版本库，构建前需按 `cpp/README.zh-CN.md` 下载解压。
+- **libwebp 1.5.0**（BSD）：源码位于 `cpp/third_party/libwebp/`，由 CMake 本地编译。
+- **yaml-cpp 0.8.0**（MIT）：源码位于 `cpp/third_party/yaml-cpp/`。
+- **stb_image / stb_image_write**（公共领域 / MIT）：单头文件，位于 `cpp/third_party/stb/`。
+- **miniz 3.0.2**（MIT）：`cpp/third_party/miniz/`。
+- **tinyxml2**（zlib）：`cpp/third_party/tinyxml2/`。
+- **gif.h**（公共领域）：`cpp/third_party/gif/`，本项目只增加了 `FILE*` 入口以支持 Unicode 路径。
+- 这些库都在本机编译/链接，不联网；PDFium 仅在运行时以 DLL/SO 形式加载。
 
 ## FFmpeg
 
